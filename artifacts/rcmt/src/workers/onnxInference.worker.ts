@@ -102,12 +102,23 @@ self.onmessage = async (e: MessageEvent) => {
       }
       const latencyMs = performance.now() - t0;
 
-      self.postMessage({
-        status: "CLASSIFY_COMPLETE",
-        slot: bestIdx + 1, // 1..5
-        similarities: sims,
-        latencyMs,
-      });
+      // Clone the embedding into a fresh ArrayBuffer so we can transfer
+      // ownership to the main thread without losing it inside the worker.
+      const embeddingOut = new Float32Array(v.length);
+      embeddingOut.set(v);
+
+      // Cast through unknown — the worker-scope postMessage takes a transfer
+      // list as its second arg, but DOM lib typings see `self` as Window.
+      (self.postMessage as unknown as (msg: unknown, transfer: Transferable[]) => void)(
+        {
+          status: "CLASSIFY_COMPLETE",
+          slot: bestIdx + 1, // 1..5
+          similarities: sims,
+          latencyMs,
+          embedding: embeddingOut,
+        },
+        [embeddingOut.buffer],
+      );
       return;
     }
   } catch (err) {

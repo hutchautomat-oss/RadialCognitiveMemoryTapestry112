@@ -25,12 +25,16 @@ export interface OnnxStatusPayload {
   similarities?: number[];
   latencyMs?: number;
   error?: string;
+  /** 384-dim L2-normalized sentence embedding (only on CLASSIFY_COMPLETE). */
+  embedding?: Float32Array;
 }
 
 export interface ClassifyResult {
   slot: number; // 1..5
   similarities: number[];
   latencyMs: number;
+  /** 384-dim L2-normalized embedding. null when ONNX wasn't ready (heuristic fallback). */
+  embedding: Float32Array | null;
 }
 
 type ClassifyResolve = (r: ClassifyResult) => void;
@@ -60,6 +64,7 @@ class OnnxWorkerManagerClass {
             slot: e.data.slot ?? 3,
             similarities: e.data.similarities ?? [],
             latencyMs: e.data.latencyMs ?? 0,
+            embedding: e.data.embedding ?? null,
           });
           this.pending = null;
         }
@@ -102,6 +107,7 @@ class OnnxWorkerManagerClass {
           slot: keywordFallbackSlot(text),
           similarities: [],
           latencyMs: 0,
+          embedding: null,
         });
         return;
       }

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { useStore } from "../store/useStore";
-import { useSaccadeStore } from "../store/useSaccadeStore";
+import { useSaccadeStore, STRIDE, MAX_NODES } from "../store/useSaccadeStore";
 import { NetworkManager } from "../network/NetworkManager";
 import { OnnxWorker, colorForSlot, type OnnxStatus } from "../workers/OnnxWorkerManager";
 
@@ -21,7 +21,6 @@ export function CommandConsole() {
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const inFlightRef = useRef(false);
-  const addNode = useStore((s) => s.addNode);
   const isLassoMode = useStore((s) => s.isLassoMode);
   const setLassoMode = useStore((s) => s.setLassoMode);
   // VRAM-aware selection (lasso writes here via the BVH hit-test).
@@ -30,10 +29,16 @@ export function CommandConsole() {
   // Pulses every time a lasso completes — drives the console log line below.
   const lassoEventTick = useSaccadeStore((s) => s.lassoEventTick);
   const lassoEventCount = useSaccadeStore((s) => s.lassoEventCount);
-  // Live node count = MAX_NODES − vacant. Reflects the 8k VRAM buffer, not
-  // the retiring legacy graph.
-  const vacantCount = useSaccadeStore((s) => s.vacantSlots.length);
-  const nodeCount = 8000 - vacantCount;
+  // Live node count = MAX_NODES − vacant. Sums all 5 per-tier FIFOs.
+  // Subscribe to vacantByTier so React re-renders when any tier's pool changes.
+  const vacantByTier = useSaccadeStore((s) => s.vacantByTier);
+  const vacantCount =
+    vacantByTier[0].length +
+    vacantByTier[1].length +
+    vacantByTier[2].length +
+    vacantByTier[3].length +
+    vacantByTier[4].length;
+  const nodeCount = MAX_NODES - vacantCount;
 
   // Emit "> LASSO captured N slots" whenever a lasso completes. Tick-driven
   // so successive lassos with the same count still log each time.
@@ -123,22 +128,6 @@ export function CommandConsole() {
       return;
     }
 
-    // Legacy node graph (kept for backwards-compat with NodeCloud renderer)
-    addNode(text);
-
-    // Sync peers immediately on the legacy graph node
-    const nodes = useStore.getState().nodes;
-    const newNode = nodes[nodes.length - 1];
-    if (newNode) {
-      NetworkManager.broadcastNodeUpdate(
-        newNode.index,
-        newNode.position[0],
-        newNode.position[1],
-        newNode.position[2],
-        newNode.certainty,
-      );
-    }
-
     // Clear input first for snappy UX, then fire async classification.
     const preview = text.slice(0, 48) + (text.length > 48 ? "…" : "");
     setInput("");
@@ -151,23 +140,72 @@ export function CommandConsole() {
 
     void (async () => {
       try {
-        const { slot, latencyMs } = await OnnxWorker.classify(text);
+        const { slot, latencyMs, embedding } = await OnnxWorker.classify(text);
         const color = colorForSlot(slot);
-        const vramIdx = useSaccadeStore
-          .getState()
-          .injectLiveIntentVector({
+        const store = useSaccadeStore.getState();
+
+        // If ONNX warmed up: embedding-aware path (reinforcement + promotion).
+        // Otherwise (heuristic fallback): legacy direct inject, no reinforcement.
+        let result: ReturnType<typeof store.reinforceOrInject> | null = null;
+        let legacySlot: number | null = null;
+        if (embedding) {
+          result = store.reinforceOrInject({
+            slot,
+            textLength: text.length,
+            colorRGB: color,
+            embedding,
+          });
+        } else {
+          legacySlot = store.injectLiveIntentVector({
             slot,
             textLength: text.length,
             colorRGB: color,
           });
+        }
 
         setLastLatency(latencyMs);
         const label = SLOT_LABELS[slot - 1] ?? "?";
         const tag = latencyMs > 0 ? `[${label} ${latencyMs.toFixed(0)}ms]` : `[${label} heuristic]`;
-        if (vramIdx === null) {
-          pushLog(`> ${tag} FULL — "${preview}" (lattice at 8k cap)`);
+
+        // ── Broadcast & log based on outcome ──
+        const broadcast = (vramSlot: number) => {
+          const s = useSaccadeStore.getState();
+          const frame = s.mockFrames[s.activeFrameIndex];
+          if (!frame) return;
+          const off = vramSlot * STRIDE;
+          NetworkManager.broadcastNodeUpdate(
+            vramSlot,
+            frame[off],
+            frame[off + 1],
+            frame[off + 2],
+            frame[off + 6] / 1.5, // approx certainty from scale (MAX_SCALE=1.5)
+          );
+        };
+
+        if (result) {
+          switch (result.kind) {
+            case "reinforced":
+              broadcast(result.slotIndex);
+              pushLog(
+                `> ${tag} ↺ REINFORCED vram[${result.slotIndex}] cos=${result.similarity.toFixed(3)}${result.promoted ? " — PROMOTED inward" : ""}: "${preview}"`,
+              );
+              break;
+            case "injected":
+              broadcast(result.slotIndex);
+              pushLog(`> ${tag} → slot ${slot} @ vram[${result.slotIndex}]: "${preview}"`);
+              break;
+            case "tier-full":
+              pushLog(`> ${tag} TIER ${slot} FULL — "${preview}" (no vacant ${label} slot)`);
+              break;
+            case "failed":
+              pushLog(`> ${tag} FAILED — no active frame buffer`);
+              break;
+          }
+        } else if (legacySlot !== null) {
+          broadcast(legacySlot);
+          pushLog(`> ${tag} → slot ${slot} @ vram[${legacySlot}]: "${preview}"`);
         } else {
-          pushLog(`> ${tag} → slot ${slot} @ vram[${vramIdx}]: "${preview}"`);
+          pushLog(`> ${tag} TIER ${slot} FULL — "${preview}"`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
