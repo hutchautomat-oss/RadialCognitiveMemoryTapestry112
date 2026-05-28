@@ -99,6 +99,11 @@ interface SaccadeStore {
   // FIFO vacant-slot reclaimer
   vacantSlots: number[];
 
+  // Starburst spawn timestamps (performance.now() ms per slot, 0 = no animation).
+  // Read in SaccadeInstancedMesh useFrame to drive the 250ms scale-pop easing.
+  // Float32Array because (a) zero GC, (b) 0 is a sentinel that returns t>>1 ⇒ ease=1.0.
+  spawnTime: Float32Array;
+
   // Worker status
   workerReady: boolean;
 
@@ -134,6 +139,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
   totalFrames: 1,
   isFileLoaded: false,
   vacantSlots: Array.from({ length: MAX_NODES }, (_, i) => i),
+  spawnTime: new Float32Array(MAX_NODES), // zero-initialized — no animation for pre-existing slots
   workerReady: false,
 
   initWorker: () => {
@@ -159,11 +165,14 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
   },
 
   loadFile: (file) => {
-    const { workerReady, initWorker } = get();
+    const { workerReady, initWorker, spawnTime } = get();
     if (!workerReady) initWorker();
     SaccadeWorker.loadFile(file);
     // Pre-load first 20 frames
     for (let i = 0; i < 20; i++) SaccadeWorker.seekFrame(i);
+    // Clear stale starburst timestamps so BINARY-mode nodes don't inherit
+    // an animation from a previous LIVE-mode injection at the same index.
+    spawnTime.fill(0);
     set({ isFileLoaded: false, mockFrames: [], activeFrameIndex: 0 });
   },
 
@@ -185,6 +194,9 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       { length: MAX_NODES - occupied },
       (_, i) => i + occupied,
     );
+    // Clear stale starburst timestamps — seeded nodes should appear at full
+    // scale, not mid-pop from a stale timestamp on the same index.
+    get().spawnTime.fill(0);
     set({
       mockFrames: [frame],
       totalFrames: 1,
@@ -209,16 +221,22 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
   },
 
   setVacantSlotRegistry: (prunedIndices) => {
-    set((state) => ({
-      // Deduplicate and cap the queue at MAX_NODES
-      vacantSlots: Array.from(
-        new Set([...state.vacantSlots, ...prunedIndices]),
-      ).slice(0, MAX_NODES),
-    }));
+    set((state) => {
+      // Clear spawn timestamps for reclaimed slots so the next injection
+      // into those slots gets a fresh 250ms starburst.
+      for (const idx of prunedIndices) {
+        if (idx >= 0 && idx < MAX_NODES) state.spawnTime[idx] = 0;
+      }
+      return {
+        vacantSlots: Array.from(
+          new Set([...state.vacantSlots, ...prunedIndices]),
+        ).slice(0, MAX_NODES),
+      };
+    });
   },
 
   injectLiveIntentVector: ({ slot, textLength, colorRGB }) => {
-    const { mockFrames, activeFrameIndex, vacantSlots } = get();
+    const { mockFrames, activeFrameIndex, vacantSlots, spawnTime } = get();
     const currentFrame = mockFrames[activeFrameIndex];
 
     // 8k Kill-Switch: halt if density cap reached or no frame buffer.
@@ -268,6 +286,9 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     currentFrame[offset + 4] = g;
     currentFrame[offset + 5] = b;
     currentFrame[offset + 6] = safeScale;
+
+    // 7. Record spawn timestamp for the 250ms starburst easing curve.
+    spawnTime[targetIndex] = performance.now();
 
     set({ vacantSlots: newVacant });
     return targetIndex;

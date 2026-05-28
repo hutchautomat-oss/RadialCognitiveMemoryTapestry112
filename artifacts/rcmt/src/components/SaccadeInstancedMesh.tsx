@@ -36,6 +36,17 @@ const _hit         = new Vector3();
 const DEATH_THRESHOLD = 0.2;
 // How many frames between bounding sphere recomputes (expensive)
 const BOUNDS_REFRESH_INTERVAL = 60;
+// Starburst spawn animation window (ms). Within this window, scale is multiplied
+// by an easeOutBack curve that overshoots ~1.7× then settles back to 1.0×.
+const SPAWN_ANIM_MS = 250;
+const EASE_BACK_C1 = 1.70158;
+const EASE_BACK_C3 = EASE_BACK_C1 + 1;
+
+/** easeOutBack — overshoot-and-settle pop. t in [0,1] → multiplier in [0, ~1.7, 1]. */
+function easeOutBack(t: number): number {
+  const x = t - 1;
+  return 1 + EASE_BACK_C3 * x * x * x + EASE_BACK_C1 * x * x;
+}
 
 export function SaccadeInstancedMesh() {
   const meshRef  = useRef<InstancedMesh>(null!);
@@ -81,6 +92,10 @@ export function SaccadeInstancedMesh() {
     if (!mesh) return;
     frameRef.current++;
 
+    // Pull starburst timestamps non-reactively (mutated in-place by the store).
+    const spawnTime = useSaccadeStore.getState().spawnTime;
+    const nowMs = performance.now();
+
     // ── Drag follow ──────────────────────────────────────────────
     if (dragRef.current) {
       raycaster.ray.intersectPlane(_dragPlane, _hit);
@@ -123,8 +138,18 @@ export function SaccadeInstancedMesh() {
           nodeTimestamps.current[i] = performance.now();
         }
 
+        // Starburst pop: within SPAWN_ANIM_MS of injection, multiply scale by
+        // easeOutBack curve so the node bursts in then settles. spawnTime[i]==0
+        // means "no animation" (pre-existing or legacy-added node) → mul=1.
+        let popMul = 1;
+        const ts = spawnTime[i];
+        if (ts > 0) {
+          const t = (nowMs - ts) / SPAWN_ANIM_MS;
+          if (t >= 0 && t < 1) popMul = easeOutBack(t);
+        }
+
         tempObject.position.set(frameData[offset], frameData[offset + 1], frameData[offset + 2]);
-        tempObject.scale.setScalar(scale * 0.15); // 0.15 = base sphere radius
+        tempObject.scale.setScalar(scale * 0.15 * popMul); // 0.15 = base sphere radius
         tempObject.updateMatrix();
         mesh.setMatrixAt(i, tempObject.matrix);
 
