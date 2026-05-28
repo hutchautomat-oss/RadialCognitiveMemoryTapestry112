@@ -1,3 +1,5 @@
 - [RCMT vacancy source-of-truth](rcmt-vacancy-sot.md) — when a store has a slot-allocation FIFO alongside a pre-allocated frame buffer, the two MUST be initialized coherently or the allocator will overwrite live data.
 - [RCMT decay vs replay](rcmt-decay-vs-replay.md) — any continuous mutator (decay, fades, animations) that writes into a shared frame buffer must be gated to live mode, never run during binary timeline scrub.
 - [Promotion/move return values](slot-move-return-values.md) — operations that relocate a node between slots must return the destination, not the source; callers that broadcast/log the source after a move will reference a zeroed slot.
+- [RCMT unified-sphere geometry](rcmt-unified-sphere.md) — one global Fibonacci spiral + sqrt-radius foveation gives a continuous 3D sphere; per-tier sub-spirals + Z-stride do not.
+- [Audit NotebookLM pastes](notebooklm-audit.md) — the math is usually right but the rationale/labeling is often wrong; check claims against replit.md before applying.

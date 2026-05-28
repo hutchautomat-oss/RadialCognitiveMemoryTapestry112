@@ -73,7 +73,11 @@ export const DEATH_THRESHOLD = 0.05;
 
 // ── RCMT geometry constants ─────────────────────────────────────────
 const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
-const Z_STRATA_VISUAL = 5.0;
+// Z-strata (the old per-tier Z offset that fanned the lattice into 5 flat
+// layers) was removed when the lattice was unified into one continuous 3D
+// sphere. Tiers are now visually distinguished by color + foveated radius
+// alone. The 5.0 constant was local-render decoration and never had any
+// network/HE meaning — see replit.md "Architecture decisions".
 const NODE_DENSITY_BUBBLE = 0.6;
 const MIN_SCALE = 0.15;
 const SCALE_PER_CHAR = 0.02;
@@ -96,12 +100,28 @@ function sphericalFibonacci(i: number, total: number): [number, number, number] 
   return [sinPhi * Math.cos(theta), sinPhi * Math.sin(theta), Math.cos(phi)];
 }
 
-/** Compute the resting (x,y,z) for any slot index based on its tier. */
+/**
+ * Compute the resting (x,y,z) for any slot index on the unified 3D sphere.
+ *
+ * Geometry contract (one continuous sphere, no Z-strata):
+ *   - Angular position: ONE global Golden-Angle Fibonacci spiral over all
+ *     8000 slots — by construction no two slots ever share an angular
+ *     vector from the origin, so radial collinearity / Z-fighting cannot
+ *     occur even when foveation pushes tiers onto different shells.
+ *   - Radius: sqrt(slot) * NODE_DENSITY_BUBBLE — slot 0 sits at the
+ *     foveated core, slot 7999 at the rim (~53.7). Because the per-tier
+ *     index ranges are contiguous (Fact [0,2000), …, Dream [7000,8000)),
+ *     sqrt-growth naturally produces foveated tier shells: Facts inner,
+ *     Dreams outer, preserving the "closer to fact, closer to act" maxim
+ *     without any explicit per-tier radius table.
+ *
+ * Z-strata were removed at the same time as the unified-sphere
+ * migration; see replit.md "Architecture decisions" for the rationale.
+ */
 export function slotRestPosition(slot: number): [number, number, number] {
-  const tier = tierForSlot(slot);
   const radius = Math.sqrt(slot) * NODE_DENSITY_BUBBLE;
   const [sx, sy, sz] = sphericalFibonacci(slot, MAX_NODES);
-  return [sx * radius, sy * radius, sz * radius + (tier - 3) * Z_STRATA_VISUAL];
+  return [sx * radius, sy * radius, sz * radius];
 }
 
 function normalizeColor(
