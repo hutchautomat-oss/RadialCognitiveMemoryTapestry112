@@ -92,7 +92,7 @@ export default function App() {
       <WebGLErrorBoundary>
         <Canvas
           gl={{ antialias: true, alpha: false }}
-          camera={{ position: [0, 35, 110], fov: 55, near: 0.1, far: 500 }}
+          camera={{ position: [0, 25, 95], fov: 60, near: 0.1, far: 500 }}
           style={{ position: "absolute", inset: 0 }}
           onCreated={({ gl }) => {
             gl.setClearColor("#050505", 1);

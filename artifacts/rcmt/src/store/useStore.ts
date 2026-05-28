@@ -65,22 +65,29 @@ const DEMO_LABELS = [
   "Vision tokens: 100 ≈ 1000 text tokens",
 ];
 
+// Stride-sample demo nodes across ALL 8000 slots (not just the Fact tier)
+// so the full unified sphere — including outer Theory/Dream shells — is
+// visible on first load. Otherwise a few hundred Fact-tier dots cluster
+// at the foveated core and the viewport looks like an empty starfield.
 function buildDemoNodes(): RCMTNode[] {
   const nodes: RCMTNode[] = [];
-  const count = 480;
-  for (let i = 0; i < count; i++) {
-    const certainty = certaintyFromIndex(i);
-    const pos = fibonacciPosition(i, MAX_NODES);
+  const stride = 6; // 8000/6 ≈ 1333 demo nodes spanning every tier shell
+  let n = 0;
+  for (let slot = 0; slot < MAX_NODES; slot += stride) {
+    const certainty = certaintyFromIndex(slot);
+    const pos = fibonacciPosition(slot, MAX_NODES);
     nodes.push({
-      id: `demo-${i}`,
-      index: i,
-      label: i < DEMO_LABELS.length ? DEMO_LABELS[i] : `Memory fragment #${i}`,
+      id: `demo-${slot}`,
+      index: slot,
+      label:
+        n < DEMO_LABELS.length ? DEMO_LABELS[n] : `Memory fragment #${slot}`,
       certainty,
       position: [...pos] as [number, number, number],
       basePosition: [...pos] as [number, number, number],
-      timestamp: Date.now() - (count - i) * 800,
-      size: 0.25 + certainty * 0.65,
+      timestamp: Date.now() - (MAX_NODES - slot) * 5,
+      size: 0.35 + certainty * 0.55,
     });
+    n++;
   }
   return nodes;
 }
@@ -108,7 +115,9 @@ export const useStore = create<RCMTStore>((set, get) => ({
   timelinePos: 1,
   snapshots: [],
   isLassoMode: false,
-  nextIndex: 480,
+  // Sequential append-after-seed cursor. Demo seed strides through every
+  // 6th slot; new injections from addNode start in the dense Fact region.
+  nextIndex: 1,
 
   addNode: (label, certaintyOverride) => {
     const { nextIndex, nodes } = get();
