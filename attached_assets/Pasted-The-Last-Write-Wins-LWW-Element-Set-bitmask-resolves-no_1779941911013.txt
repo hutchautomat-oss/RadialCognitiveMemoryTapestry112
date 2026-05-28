@@ -1,0 +1,20 @@
+The Last-Write-Wins (LWW) Element-Set bitmask resolves node update collisions by employing a decentralized **Conflict-Free Reclaimed Vector Matrix (CRVM)** paired with a **64-bit Composite Clock**. This protocol prevents catastrophic state de-synchronization when multiple users identify the same vacant array index (e.g., Index 402) and attempt to overwrite it at the exact same time over a live network.
+
+Here is how the LWW bitmask mechanism resolves the collision without relying on a central database lock:
+
+**1. The 64-Bit Composite Clock**
+Every node index claim packet is stamped with a uniquely generated 64-bit ID. 
+*   **Bits 00–47 (Physical Time):** This segment holds a high-precision monotonic timestamp (in milliseconds) and acts as the primary chronological sorting key.
+*   **Bits 48–63 (Writer ID):** This segment holds a globally unique 16-bit peer hash identifier. It serves as a strict deterministic tiebreaker; if two users submit an update to the exact same node at the exact same millisecond, the system grants the win to the user with the higher Writer ID.
+
+**2. Lexicographical Merge Strategy**
+When an update packet arrives at a node slot, the system evaluates the state using the mathematical logic: `Target_State = max(Incoming_Clock, Local_Clock)`. 
+
+*   **Incoming > Local (Fresher Data):** If the incoming 64-bit integer is numerically higher than the currently stored clock, the new data is determined to be the freshest. The system accepts the update, overwrites the GPU's VRAM slot, updates the local clock, and broadcasts an ACK.
+*   **Incoming < Local (Stale Data):** If the incoming clock is lower, the packet is deemed stale due to lag or an out-of-order arrival and is instantly dropped.
+*   **Incoming == Local (Idempotent Safety):** If the clocks perfectly match, the packet is dropped to ensure safe, repeatable state application without infinite loops.
+
+**3. The Automated "Re-Roll"**
+When a client "loses" a collision—meaning their packet was stale and rejected by the network—their local system does not crash or lose the data. The Client-Side Network Manager catches the `REJECT` opcode and triggers an automatic **Re-roll**. The system immediately shifts the next contiguous free index from its local `vacantSlots` FIFO queue, repaints the user's intent vector to the new local VRAM slot, and broadcasts a fresh claim across the network. 
+
+This ensures that all connected clients mathematically converge on the exact same matrix state while processing concurrent, high-frequency updates with near-zero latency.

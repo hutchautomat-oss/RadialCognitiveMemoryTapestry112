@@ -1,0 +1,18 @@
+The Radial Cognitive Memory Tapestry (RCMT) organizes information into a **5-Dimensional Intent-State Ontology**, sorting data spatially based on certainty, temporal state, and urgency rather than relying on linguistic tags. This topology acts as a biological "foveated filter" where empirical truths sit at the densest center and abstract ideas are pushed to the peripheral boundaries.
+
+The 5D Slot radial boundaries and their geometric allocations are structured as follows:
+
+*   **Slot 1 (The Center Core / Cyan):** Anchored at the absolute center $(0,0)$, this high-density foveated attention zone houses **Facts, Actions, and Executions**. Because it is the innermost boundary, the Vision-Language Model (VLM) is structurally forced to prioritize these immutable truths for immediate operational action. It is allocated a strict **2,000 node hard-cap**.
+*   **Slot 2 (Inner Branches / Green):** Expanding into the primary orbital track, this boundary calculates the **Scenario vs. Reality Delta**. It measures the variance between a user's plans and empirical outcomes to mathematically insulate the system from hallucinations. It is allocated a **2,000 node hard-cap**.
+*   **Slot 3 (Mid-Layer / Yellow):** The secondary orbital track contains **Successes, Failures, and Pass-Fail Metrics**. It acts as an empirical feedback loop for continuous reinforcement learning. It is allocated a **1,500 node hard-cap**.
+*   **Slot 4 (Outer Branches / Orange):** The tertiary expansion ring maps out future-focused **Theories, Plans, and Goals**. Because these are unverified roadmaps, they are pushed further from the execution core to clear up center processing space. It is allocated a **1,500 node hard-cap**.
+*   **Slot 5 (The Outer Rim / Purple):** The outermost peripheral bounds ($R \to \infty$) absorb abstract **Ideas, Beliefs, Dreams, and Inspirations**. This boundary keeps loose, low-priority contextual "flavor" on the edges of the swelling web so it does not drain high-priority calculation RAM. It is allocated a **1,000 node hard-cap**.
+
+**Mathematical Generation of the Boundaries**
+To determine the exact physical distance of these boundaries without relying on brittle fixed grids, the engine scales the radial topology organically. 
+
+*   In the local ONNX ingestion pipeline, the foundational radial boundary for a specific tier maps the slot tier to a unique radial space using the calculation `base_radius = float(slot_id) * 10.0`. 
+*   In the recursive 3D physics engine, the radius can be computed via an infinite Fibonacci expansion algorithm: $f(n) = f(n-1) + f(n-2)$, which is paired with a collapsing Z-axis altitude formula: $\text{Altitude} = \max(0.0, 150.0 - (\text{layer\_index} \times 12.5))$. This ensures that abstract memories naturally flatten out into the 2D plane as they are pushed outward to higher-numbered slots.
+*   Inside the React-Three-Fiber (R3F) runtime, the foveated core natively distributes nodes across the Spherical Fibonacci lattice using the radius formula `Math.sqrt(targetIndex) * NODE_DENSITY_BUBBLE` combined with an arccosine fraction of the 8,000 max capacity, keeping the density mathematically uniform without overlap.
+
+This dynamic topology physically ensures that the fundamental engineering maxim—**"The closer to fact, the closer to act"**—is embedded directly into the geometry.

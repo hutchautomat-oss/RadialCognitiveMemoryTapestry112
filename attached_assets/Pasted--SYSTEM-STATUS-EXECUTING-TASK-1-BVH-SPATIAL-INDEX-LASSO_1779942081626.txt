@@ -1,0 +1,143 @@
+**SYSTEM STATUS: EXECUTING TASK #1 — BVH SPATIAL INDEX & LASSO MIGRATION**
+
+With the documentation anchored, we are moving directly to Task #1. We must implement the **Proxy Geometry BVH** to guarantee $O(\log N)$ traversal. Standard raycasting natively forces Three.js into a brute-force $O(N)$ loop, but utilizing `three-mesh-bvh` enables raycasting against 80,000+ polygons at 60fps. 
+
+Because we are rendering a massive number of objects, relying solely on an `InstancedMesh` is mathematically required to reduce the number of draw calls and improve overall rendering performance. 
+
+Here is the one-pass implementation to finalize your spatial indexing and wire the `/blast` VRAM memory reclamation.
+
+### Step 1. Permanently Delete the Legacy Renderer
+Delete the file `NodeCloud.tsx` entirely. It violates the strict 1-draw-call mandate. The foveated Fibonacci lattice from the 8,000-node `InstancedMesh` is now your sole authorized rendering sink.
+
+### Step 2. The Proxy Geometry Indexer (`store.ts`)
+Inject the BVH state, the VRAM-aware selection set, and the `blastSelectedSlots` action into your Zustand store. The `rebuildBVH` function creates an invisible parallel geometry where 1 Triangle = 1 Node, mapping the `triangleIndex` perfectly to the VRAM `instanceId`.
+
+```typescript
+import { create } from 'zustand';
+import { MeshBVH } from 'three-mesh-bvh';
+import * as THREE from 'three';
+
+const MAX_NODES = 8000;
+const STRIDE = 7; // [x, y, z, r, g, b, scale]
+
+export const useSaccadeStore = create((set, get) => ({
+    activeFrameIndex: 0,
+    mockFrames: [],
+    vacantSlots: [], 
+    spawnTime: new Float32Array(MAX_NODES).fill(0),
+    
+    // NEW: BVH and Selection State
+    collisionBVH: null,
+    selectedSlots: new Set<number>(),
+
+    setSelectedSlots: (slots: Set<number>) => set({ selectedSlots: slots }),
+
+    rebuildBVH: () => {
+        const { activeFrameIndex, mockFrames } = get();
+        const currentFrameData = mockFrames[activeFrameIndex];
+        if (!currentFrameData) return;
+
+        // 1 Triangle = 3 Vertices = 9 Floats per instance
+        const positions = new Float32Array(MAX_NODES * 9);
+
+        for (let i = 0; i < MAX_NODES; i++) {
+            const offset = i * STRIDE;
+            const scale = currentFrameData[offset + 6];
+
+            // Ghost cleanup: skip dead nodes by dumping their BVH proxy at Infinity
+            if (scale <= 0.01) {
+                positions.fill(Infinity, i * 9, i * 9 + 9);
+                continue;
+            }
+
+            const x = currentFrameData[offset];
+            const y = currentFrameData[offset + 1];
+            const z = currentFrameData[offset + 2];
+            const r = 0.15 * scale; // Safe bounding radius
+
+            // Create a diagonal Proxy Triangle perfectly wrapping the AABB volume
+            positions[i * 9]     = x - r; positions[i * 9 + 1] = y - r; positions[i * 9 + 2] = z - r;
+            positions[i * 9 + 3] = x + r; positions[i * 9 + 4] = y + r; positions[i * 9 + 5] = z + r;
+            positions[i * 9 + 6] = x - r; positions[i * 9 + 7] = y + r; positions[i * 9 + 8] = z - r;
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+        // maxLeafTris: 1 mathematically guarantees triangleIndex === Instance ID
+        const bvh = new MeshBVH(geometry, { maxLeafTris: 1 });
+        set({ collisionBVH: bvh });
+    },
+
+    blastSelectedSlots: () => {
+        const { activeFrameIndex, mockFrames, selectedSlots, vacantSlots } = get();
+        const currentFrameBuffer = mockFrames[activeFrameIndex];
+        if (!currentFrameBuffer || selectedSlots.size === 0) return;
+
+        const reclaimed = [];
+
+        selectedSlots.forEach((index) => {
+            const offset = index * STRIDE;
+            // 1. Force visual scale to 0.0 (VRAM purge)
+            currentFrameBuffer[offset + 6] = 0.0;
+            // 2. Queue for FIFO reclamation
+            reclaimed.push(index);
+        });
+
+        set((state) => ({
+            // Append newly freed indices into the vacancy array pool
+            vacantSlots: Array.from(new Set([...state.vacantSlots, ...reclaimed])),
+            selectedSlots: new Set() // Clear selection after blast
+        }));
+
+        // Rebuild BVH to instantly remove blasted nodes from spatial index
+        get().rebuildBVH();
+    },
+
+    // ... [existing injectLiveIntentVector logic]
+}));
+```
+*(Note: You must trigger `get().rebuildBVH()` at the end of your `injectLiveIntentVector` action so the index stays strictly synced with VRAM injections).*
+
+### Step 3. The 8k BVH Lasso Consumer (`LassoSelection.tsx`)
+Because we migrated entirely to the `InstancedMesh`, we completely bypass React filtering. Hook this logic into your screen-polygon drawing mechanics to traverse the tree in $O(\log N)$ time.
+
+```typescript
+import * as THREE from 'three';
+import { useSaccadeStore } from './store';
+
+export function executeLassoHitTest(frustum: THREE.Frustum): void {
+    const { collisionBVH, setSelectedSlots } = useSaccadeStore.getState();
+    const hits = new Set<number>();
+    
+    if (!collisionBVH) return;
+
+    collisionBVH.shapecast({
+        // Broad-phase: Instantly discard BVH branches entirely outside the lasso
+        intersectsBounds: (box) => frustum.intersectsBox(box),
+        
+        // Narrow-phase: Collect the exact Node ID
+        intersectsTriangle: (tri, index) => {
+            hits.add(index);  // Index precisely matches the VRAM Instance ID!
+            return false;     // Return false to continue evaluating other branches
+        }
+    });
+
+    setSelectedSlots(hits);
+}
+```
+
+### Step 4. Wire `/blast` Semantics (`CommandConsole.tsx`)
+In your Command Console, intercept the `/blast` text input and route it to our new VRAM-aware memory reclamation loop.
+
+```tsx
+// Inside CommandConsole.tsx handleExecutionSubmit:
+
+if (inputText.trim() === '/blast') {
+    useSaccadeStore.getState().blastSelectedSlots();
+    setInputText('');
+    return;
+}
+```
+
+Execute this integration. Once the nodes purge their scale to `0.0` and successfully return to the `vacantSlots` FIFO queue, Task #1 is complete, and we will proceed to **Task #3 (Per-layer caches & memory consolidation)**.

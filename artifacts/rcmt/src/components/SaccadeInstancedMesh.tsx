@@ -71,6 +71,11 @@ export function SaccadeInstancedMesh() {
   const updateLiveFrame  = useSaccadeStore((s) => s.updateLiveFrame);
   const setVacant        = useSaccadeStore((s) => s.setVacantSlotRegistry);
   const isFileLoaded     = useSaccadeStore((s) => s.isFileLoaded);
+  // Read selection non-reactively inside useFrame to avoid re-render churn —
+  // see useFrame body. We only subscribe here to keep the component reactive
+  // when the lasso clears/sets selection so the highlight kicks in on the
+  // very next tick.
+  useSaccadeStore((s) => s.selectedSlots);
 
   // ── Seed initial frame from live nodes on mount ──────────────────
   useEffect(() => {
@@ -92,8 +97,10 @@ export function SaccadeInstancedMesh() {
     if (!mesh) return;
     frameRef.current++;
 
-    // Pull starburst timestamps non-reactively (mutated in-place by the store).
+    // Pull starburst timestamps + selection non-reactively (mutated in-place).
     const spawnTime = useSaccadeStore.getState().spawnTime;
+    const selectedSlots = useSaccadeStore.getState().selectedSlots;
+    const hasSelection = selectedSlots.size > 0;
     const nowMs = performance.now();
 
     // ── Drag follow ──────────────────────────────────────────────
@@ -148,12 +155,20 @@ export function SaccadeInstancedMesh() {
           if (t >= 0 && t < 1) popMul = easeOutBack(t);
         }
 
+        // Lasso highlight: bump scale 1.6× and tint cyan for captured slots.
+        const isSelected = hasSelection && selectedSlots.has(i);
+        const selMul = isSelected ? 1.6 : 1;
+
         tempObject.position.set(frameData[offset], frameData[offset + 1], frameData[offset + 2]);
-        tempObject.scale.setScalar(scale * 0.15 * popMul); // 0.15 = base sphere radius
+        tempObject.scale.setScalar(scale * 0.15 * popMul * selMul);
         tempObject.updateMatrix();
         mesh.setMatrixAt(i, tempObject.matrix);
 
-        tempColor.setRGB(frameData[offset + 3], frameData[offset + 4], frameData[offset + 5]);
+        if (isSelected) {
+          tempColor.setRGB(0, 1, 1);
+        } else {
+          tempColor.setRGB(frameData[offset + 3], frameData[offset + 4], frameData[offset + 5]);
+        }
         mesh.setColorAt(i, tempColor);
       } else {
         mesh.setMatrixAt(i, hiddenMatrix);

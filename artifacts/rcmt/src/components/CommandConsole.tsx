@@ -24,9 +24,13 @@ export function CommandConsole() {
   const addNode = useStore((s) => s.addNode);
   const isLassoMode = useStore((s) => s.isLassoMode);
   const setLassoMode = useStore((s) => s.setLassoMode);
-  const selectedIndices = useStore((s) => s.selectedIndices);
-  const applyRepulsion = useStore((s) => s.applyRepulsion);
-  const nodeCount = useStore((s) => s.nodes.length);
+  // VRAM-aware selection (lasso writes here via the BVH hit-test).
+  const selectedSlots = useSaccadeStore((s) => s.selectedSlots);
+  const blastSelectedSlots = useSaccadeStore((s) => s.blastSelectedSlots);
+  // Live node count = MAX_NODES − vacant. Reflects the 8k VRAM buffer, not
+  // the retiring legacy graph.
+  const vacantCount = useSaccadeStore((s) => s.vacantSlots.length);
+  const nodeCount = 8000 - vacantCount;
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -83,11 +87,11 @@ export function CommandConsole() {
     }
 
     if (text.startsWith("/blast")) {
-      if (selectedIndices.size === 0) {
-        pushLog("> ERROR: No nodes selected. Use lasso first.");
+      if (selectedSlots.size === 0) {
+        pushLog("> ERROR: No slots selected. Use lasso first.");
       } else {
-        applyRepulsion(Array.from(selectedIndices));
-        pushLog(`> REPULSION BLAST fired on ${selectedIndices.size} nodes`);
+        const purged = blastSelectedSlots();
+        pushLog(`> BLAST purged ${purged} slots — returned to FIFO`);
       }
       setInput("");
       return;

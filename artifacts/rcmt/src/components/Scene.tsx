@@ -3,6 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
 import { PointLight } from "three";
 import { SaccadeInstancedMesh } from "./SaccadeInstancedMesh";
+import { LassoSelection } from "./LassoSelection";
 
 function DriftingLight() {
   const lightRef = useRef<PointLight>(null!);
@@ -49,6 +50,9 @@ export function Scene() {
 
       {/* The Tapestry — 1-draw-call instanced mesh for all 8,000 nodes */}
       <SaccadeInstancedMesh />
+
+      {/* Lasso overlay — runs BVH hit-test against the 8k lattice */}
+      <LassoSelection />
 
       {/* Origin marker */}
       <mesh position={[0, 0, 0]}>
