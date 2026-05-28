@@ -1,0 +1,82 @@
+[
+  {
+    "id": "0a1c2e10-0001-4a00-8000-000000000001",
+    "position": 1,
+    "filepath": "src/pages/slides/Title.tsx",
+    "title": "Title",
+    "description": "A memory that thinks in shape, not in numbers.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0a1c2e10-0002-4a00-8000-000000000002",
+    "position": 2,
+    "filepath": "src/pages/slides/Problem.tsx",
+    "title": "The Problem",
+    "description": "Why today's AI memory is expensive: dense float vectors.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0a1c2e10-0003-4a00-8000-000000000003",
+    "position": 3,
+    "filepath": "src/pages/slides/Density.tsx",
+    "title": "Density",
+    "description": "An entire mind fits in 224 KB — ~100x denser than vector storage.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0a1c2e10-0004-4a00-8000-000000000004",
+    "position": 4,
+    "filepath": "src/pages/slides/Idea.tsx",
+    "title": "The Idea",
+    "description": "Position is the meaning. A foveated 3D lattice.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0a1c2e10-0005-4a00-8000-000000000005",
+    "position": 5,
+    "filepath": "src/pages/slides/Tiers.tsx",
+    "title": "Five Tiers",
+    "description": "Fact, Scenario, Metric, Theory, Dream.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0a1c2e10-0006-4a00-8000-000000000006",
+    "position": 6,
+    "filepath": "src/pages/slides/Capacity.tsx",
+    "title": "Capacity",
+    "description": "A hard cap of 8,000 memories. Oldest fading slot recycles.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0a1c2e10-0007-4a00-8000-000000000007",
+    "position": 7,
+    "filepath": "src/pages/slides/Peers.tsx",
+    "title": "Peer-merged",
+    "description": "Write locally, broadcast 28 bytes, latest timestamp wins.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0a1c2e10-0008-4a00-8000-000000000008",
+    "position": 8,
+    "filepath": "src/pages/slides/Sovereign.tsx",
+    "title": "Sovereign",
+    "description": "Words never leave your machine. Only geometry crosses the wire.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0a1c2e10-0009-4a00-8000-000000000009",
+    "position": 9,
+    "filepath": "src/pages/slides/WhyItMatters.tsx",
+    "title": "Why it matters",
+    "description": "A mind another mind can pick up mid-thought.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0a1c2e10-0010-4a00-8000-000000000010",
+    "position": 10,
+    "filepath": "src/pages/slides/Closing.tsx",
+    "title": "Closing",
+    "description": "Dense. Append-only. Yours.",
+    "speakerNotes": ""
+  }
+]

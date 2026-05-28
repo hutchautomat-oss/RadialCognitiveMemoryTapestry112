@@ -1,0 +1,14 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "39dEzFfIX1iQMW2zrU_rj"
+uri = "file://artifacts/rcmt-deck/public/tapestry-hero.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "1VBPiYNrM9TBTLQcZwEry"
+uri = "file://artifacts/rcmt-deck/public/density-compare.png"
+type = "image"
+title = "generated_image"
