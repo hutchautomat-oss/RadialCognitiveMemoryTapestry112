@@ -1,0 +1,95 @@
+**SYSTEM OVERRIDE: DRIFT ACKNOWLEDGED. ANCHORING TO PATH A.**
+
+You are absolutely right. I drifted from the established architecture and created a conflicting worker instantiation that violated our $O(1)$ memory mandate. I am stripping away the excess narrative and anchoring strictly to the Gold Master specifications and your exact constraints for **Path A**.
+
+I have removed the duplicate worker entirely. The data routing will be handled exclusively by your existing `SaccadeWorkerManager.ts` bridge. The `Z_STRATA_MULTIPLIER` is scaled down to `5.0` for local visibility, the `colorRGB` input is parsed flexibly, the `safeScale` is capped at `1.5`, and the geometry is now a **true 3D Spherical Fibonacci lattice**.
+
+Here is the exact, corrected, and integrated code for your state store. 
+
+### The Corrected State Store (`src/store.js` or `useSaccadeStore.ts`)
+
+```javascript
+import { create } from 'zustand';
+
+// RCMT v5.0 Physics & Density Constants
+const MAX_NODES = 8000; 
+const STRIDE = 7; // [x, y, z, r, g, b, initial_importance/scale]
+const GOLDEN_ANGLE = 137.508 * (Math.PI / 180); // 137.508 degrees in radians to prevent Pole Clustering
+const NODE_DENSITY_BUBBLE = 0.6; // Centrifugal spacing multiplier
+const Z_STRATA_MULTIPLIER = 5.0; // Reduced from 10000.0 for visible local canvas strata
+
+export const useSaccadeStore = create((set, get) => {
+    // Duplicate worker initialization removed. 
+    // Handled via the existing SaccadeWorkerManager.ts bridge.
+
+    return {
+        activeFrameIndex: 0,
+        totalFrames: 0,
+        isLoaded: false,
+        mockFrames: [], 
+        vacantSlots: [], // FIFO queue tracking indexes reclaimed by the pruning engine
+
+        setVacantSlotRegistry: (prunedIndices) => {
+            set((state) => ({
+                vacantSlots: Array.from(new Set([...state.vacantSlots, ...prunedIndices]))
+            }));
+        },
+
+        // THE COLLISION ENGINE & REAL SPHERICAL FIBONACCI DISPERSION
+        injectLiveIntentVector: ({ slot, textLength, colorRGB }) => {
+            const { activeFrameIndex, mockFrames, vacantSlots } = get();
+            const currentFrameBuffer = mockFrames[activeFrameIndex];
+            
+            // 8k Kill-Switch: Halt injection if density cap is reached
+            if (!currentFrameBuffer || vacantSlots.length === 0) {
+                console.warn("MAX DENSITY RATIO REACHED. Awaiting pruning engine reclamation.");
+                return;
+            }
+            
+            // 1. Pop the oldest dead index to overwrite (O(1) VRAM recycle)
+            const targetIndex = vacantSlots.shift();
+
+            // 2. Safe-Zone Data Block Sizing with Dynamic Scale Cap
+            const safeScale = Math.min(0.15 + (textLength * 0.02), 1.5);
+
+            // 3. Real Spherical Fibonacci Lattice (3D x, y, z)
+            const radius = Math.sqrt(targetIndex) * NODE_DENSITY_BUBBLE;
+            const phi = Math.acos(1 - 2 * (targetIndex / MAX_NODES)); // Distributes properly across the Z-poles
+            const theta = targetIndex * GOLDEN_ANGLE;
+            
+            // Cartesian mapping from the spherical lattice
+            const x = radius * Math.sin(phi) * Math.cos(theta);
+            const y = radius * Math.sin(phi) * Math.sin(theta);
+            const zLocal = radius * Math.cos(phi);
+
+            // 4. Orthogonal Z-Strata Separation (Visible local mapping)
+            const zIsolated = (slot * Z_STRATA_MULTIPLIER) + zLocal;
+
+            // 5. Flexible Color Parsing: Accepts {r, g, b} object or [r, g, b] tuple
+            let r, g, b;
+            if (Array.isArray(colorRGB)) {
+                [r, g, b] = colorRGB;
+            } else {
+                ({ r, g, b } = colorRGB);
+            }
+
+            // 6. Direct 28-Byte Binary Stride Mutation
+            const offset = targetIndex * STRIDE;
+            currentFrameBuffer[offset] = x;
+            currentFrameBuffer[offset + 1] = y;
+            currentFrameBuffer[offset + 2] = zIsolated;
+            currentFrameBuffer[offset + 3] = r; 
+            currentFrameBuffer[offset + 4] = g; 
+            currentFrameBuffer[offset + 5] = b; 
+            currentFrameBuffer[offset + 6] = safeScale;   // Mass/Scale
+
+            // Re-sync the FIFO queue state so React knows the slot is taken
+            set({ vacantSlots: [...vacantSlots] });
+        },
+        
+        setFrameIndex: (index) => set({ activeFrameIndex: index })
+    };
+});
+```
+
+I am anchored to this exact architecture block. Once this is merged and the geometry holds, tell me which specific piece of the `CommandConsole` ingestion layer or the ONNX classifier mapping you are plugging in next.
