@@ -24,16 +24,15 @@ export interface OnnxStatusPayload {
   slot?: number;
   similarities?: number[];
   latencyMs?: number;
-  error?: string;
-  /** 384-dim L2-normalized sentence embedding (only on CLASSIFY_COMPLETE). */
   embedding?: Float32Array;
+  error?: string;
 }
 
 export interface ClassifyResult {
   slot: number; // 1..5
   similarities: number[];
   latencyMs: number;
-  /** 384-dim L2-normalized embedding. null when ONNX wasn't ready (heuristic fallback). */
+  /** L2-normalized 384-d MiniLM embedding (transferred from the worker). */
   embedding: Float32Array | null;
 }
 

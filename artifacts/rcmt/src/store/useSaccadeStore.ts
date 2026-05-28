@@ -1,31 +1,32 @@
 /**
- * useSaccadeStore — Saccade frame buffer, per-tier FIFO reclaimer, decay engine,
- *                   cosine reinforcement, promotion animator, and BVH index for
- *                   the 8k cognitive lattice.
+ * useSaccadeStore — Saccade frame buffer, per-tier FIFO caches, decay engine,
+ *                   promotion-on-reinforcement, and BVH spatial index for the
+ *                   8k lattice.
  *
- * Modes:
- *   LIVE   — mockFrames[0] is the source of truth; in-place mutation
- *   BINARY — mockFrames populated from a .bin file; scrubbing replays frames
+ * Per-tier caches (Task #3): the 0..7999 index space is partitioned into 5
+ * disjoint shells, one per ontology tier. Each tier owns its own FIFO of
+ * vacant slot indices, its own occupancy count, and its own decay rate λ. When
+ * a tier fills, the lowest-Health slot in that tier is evicted (not the
+ * globally-oldest). Dream churn therefore can NEVER evict Facts.
  *
  * Float32 stride layout per node (STRIDE = 7):
  *   [0] x   [1] y   [2] z   [3] r   [4] g   [5] b   [6] importance/scale
  *
- * Task #3 — Per-tier ontology pools:
- *   Tier 1 Fact      slots [0,    2000)   cap 2000   λ 0.005/s
- *   Tier 2 Scenario  slots [2000, 4000)   cap 2000   λ 0.015/s
- *   Tier 3 Metric    slots [4000, 5500)   cap 1500   λ 0.030/s
- *   Tier 4 Theory    slots [5500, 7000)   cap 1500   λ 0.060/s
- *   Tier 5 Dream     slots [7000, 8000)   cap 1000   λ 0.120/s
+ * Per-node state arrays (NOT part of the 28-byte CRVM payload — runtime only):
+ *   slotTier[i]            Uint8  — 1..5, the ontology tier this slot belongs to
+ *   embeddings[i*384..]    Float32 — L2-normalized ONNX vector for cosine reinforcement
+ *   reinforcementCount[i]  Uint8  — strikes toward 3-strike promotion
+ *   injectedAt[i]          Float64 — wall-clock ms; basis for exp(-λ·Δt) Health
+ *   mass[i]                Float32 — resting scale (separate from the rendered
+ *                                    scale so promotion pulses don't corrupt it)
+ *   animStartTime[i]       Float64 — 0 = no animation; >0 = promotion in flight
+ *   animFromPos[i*3..]     Float32 — promotion origin XYZ
+ *   animToPos[i*3..]       Float32 — promotion destination XYZ
  *
- *   Each tier has its own FIFO of vacant slot indices. Dream churn can only
- *   evict Dreams; Fact slots are protected by their slow decay + isolated pool.
- *
- *   Pre-allocated 12.28 MB embedding bank (Float32Array(8000 * 384)) backs
- *   cosine-similarity reinforcement: if incoming text has cos>0.92 against an
- *   existing occupied slot, that slot is reinforced (scale bumped, count++)
- *   rather than spawning a fresh node. After 3 reinforcements a node promotes
- *   inward (tier N → N-1) with a 400ms cubic-ease animation, pulsing 1.5×
- *   and flashing cyan during transit.
+ * Spatial index:
+ *   The collisionBVH wraps a proxy BufferGeometry with exactly one triangle per
+ *   VRAM slot, so `triangleIndex === slotIndex`. Rebuilds are LAZY: mutations
+ *   only set bvhDirty=true; rebuild happens on the next getCollisionBVH().
  */
 
 import { create } from "zustand";
@@ -33,60 +34,78 @@ import { BufferAttribute, BufferGeometry } from "three";
 import { MeshBVH } from "three-mesh-bvh";
 import { SaccadeWorker } from "../workers/SaccadeWorkerManager";
 import type { RCMTNode } from "./useStore";
-import { colorForSlot } from "../workers/OnnxWorkerManager";
 
 export const MAX_NODES = 8000;
 export const STRIDE = 7;
-export const EMBED_DIM = 384;
 
-// ── Tier ontology (locked Task #3 spec) ─────────────────────────────
-export const TIER_COUNT = 5;
-/** Tier slot caps — Facts/Scenarios bulk, Dreams sparse. Sum = MAX_NODES. */
+// ── Task #3: Per-tier caches ──────────────────────────────────────────
+// Slot ontology is 1-based (1=Fact, 2=Scenario, 3=Metric, 4=Theory, 5=Dream).
+// All array indices in this file are 0-based; the +1/-1 conversions are
+// localized to the public surface.
+
+/** Hard cap per tier. MUST sum to exactly MAX_NODES (8000). */
 export const TIER_CAPS: ReadonlyArray<number> = [2000, 2000, 1500, 1500, 1000];
-/** Per-second exponential decay rate λ. Facts persist; Dreams evaporate. */
-export const TIER_LAMBDA: ReadonlyArray<number> = [
-  0.005, 0.015, 0.03, 0.06, 0.12,
-];
-/** Cumulative start indices: [0, 2000, 4000, 5500, 7000, 8000]. */
-export const TIER_OFFSETS: ReadonlyArray<number> = (() => {
-  const out = [0];
-  for (let i = 0; i < TIER_CAPS.length; i++) out.push(out[i] + TIER_CAPS[i]);
-  return out;
+
+/** Starting absolute slot index for each tier. Computed from TIER_CAPS. */
+export const TIER_STARTS: ReadonlyArray<number> = (() => {
+  const arr: number[] = [];
+  let acc = 0;
+  for (const c of TIER_CAPS) {
+    arr.push(acc);
+    acc += c;
+  }
+  if (acc !== MAX_NODES) {
+    throw new Error(
+      `TIER_CAPS sum (${acc}) must equal MAX_NODES (${MAX_NODES}) — over/underallocation corrupts the BVH proxy buffer.`,
+    );
+  }
+  return arr;
 })();
 
-/** Map a slot index → tier number (1..5). O(log n) but n=5, so unrolled. */
-export function tierForSlot(slot: number): 1 | 2 | 3 | 4 | 5 {
-  if (slot < TIER_OFFSETS[1]) return 1;
-  if (slot < TIER_OFFSETS[2]) return 2;
-  if (slot < TIER_OFFSETS[3]) return 3;
-  if (slot < TIER_OFFSETS[4]) return 4;
-  return 5;
-}
+/** Per-tier decay rate λ for Health(t) = exp(-λ · Δt_seconds). */
+export const TIER_LAMBDA: ReadonlyArray<number> = [
+  0.005, // Fact — barely decays
+  0.015, // Scenario
+  0.03, // Metric
+  0.06, // Theory
+  0.12, // Dream — hyper-decay
+];
 
-// ── Reinforcement + promotion knobs (locked) ────────────────────────
-export const REINFORCE_THRESHOLD = 0.92;
-const REINFORCE_BOOST = 0.3;
-export const PROMOTION_THRESHOLD = 3;
-export const PROMOTION_DURATION_MS = 400;
-/** Death threshold for decay. ln(MAX/DEATH)/λ gives lifespan: Facts ~11min, Dreams ~28s. */
-export const DEATH_THRESHOLD = 0.05;
+/** Dimensionality of the @xenova/transformers MiniLM-L6-v2 embedding. */
+export const EMBEDDING_DIM = 384;
 
-// ── RCMT geometry constants ─────────────────────────────────────────
+/** Cosine-similarity threshold for treating an input as reinforcement. */
+const REINFORCE_SIM_THRESHOLD = 0.92;
+/** Strikes required before promotion fires (slots 4 & 5 only). */
+const REINFORCE_PROMOTE_COUNT = 3;
+/** Health below this value → node evaporates. */
+const HEALTH_DEATH = 0.05;
+/** Per-reinforcement scale bump. */
+const MASS_REINFORCE_INCR = 0.15;
+/** Max scale a single slot can grow to via reinforcement. */
+const MASS_REINFORCE_CAP = 3.0;
+/** Promotion orbital-shift duration (ms). Cubic ease-in-out. */
+export const PROMOTION_ANIM_MS = 400;
+/** Background decay sweep interval (ms). NOT inside useFrame — see comment. */
+const DECAY_SWEEP_MS = 2000;
+
+// ── RCMT v5.0 Physics & Density Constants ───────────────────────────
 const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
-// Z-strata (the old per-tier Z offset that fanned the lattice into 5 flat
-// layers) was removed when the lattice was unified into one continuous 3D
-// sphere. Tiers are now visually distinguished by color + foveated radius
-// alone. The 5.0 constant was local-render decoration and never had any
-// network/HE meaning — see replit.md "Architecture decisions".
+// Z-strata (the old per-tier Z offset) was removed in Task #10 — the lattice
+// is now a single continuous 3D sphere, tiers distinguished by color +
+// foveated radius alone. See replit.md "Architecture decisions".
 const NODE_DENSITY_BUBBLE = 0.6;
 const MIN_SCALE = 0.15;
 const SCALE_PER_CHAR = 0.02;
 const MAX_SCALE = 1.5;
 
 // BVH proxy triangle radius — MUST match SaccadeInstancedMesh's
-// `SphereGeometry(1, 8, 8)` scaled by `scale * 0.15`.
+// `SphereGeometry(1, 8, 8)` scaled by `scale * 0.15`. Any other multiplier
+// desyncs picking from visuals.
 const PROXY_SCALE_MULT = 0.15;
 
+// Pre-computed equilateral-triangle offsets in the XZ plane (unit radius).
+// Multiplied by (scale * PROXY_SCALE_MULT) per slot at proxy build time.
 const TRI_OFFSETS: ReadonlyArray<[number, number, number]> = [
   [1, 0, 0],
   [-0.5, 0, 0.8660254038],
@@ -101,27 +120,21 @@ function sphericalFibonacci(i: number, total: number): [number, number, number] 
 }
 
 /**
- * Compute the resting (x,y,z) for any slot index on the unified 3D sphere.
- *
- * Geometry contract (one continuous sphere, no Z-strata):
- *   - Angular position: ONE global Golden-Angle Fibonacci spiral over all
- *     8000 slots — by construction no two slots ever share an angular
- *     vector from the origin, so radial collinearity / Z-fighting cannot
- *     occur even when foveation pushes tiers onto different shells.
- *   - Radius: sqrt(slot) * NODE_DENSITY_BUBBLE — slot 0 sits at the
- *     foveated core, slot 7999 at the rim (~53.7). Because the per-tier
- *     index ranges are contiguous (Fact [0,2000), …, Dream [7000,8000)),
- *     sqrt-growth naturally produces foveated tier shells: Facts inner,
- *     Dreams outer, preserving the "closer to fact, closer to act" maxim
- *     without any explicit per-tier radius table.
- *
- * Z-strata were removed at the same time as the unified-sphere
- * migration; see replit.md "Architecture decisions" for the rationale.
+ * Compute the foveated lattice position for an absolute slot index. Slot 1
+ * (Fact) sits near the core; slot 5 (Dream) disperses to the rim. The radial
+ * shell is implied by the slot's absolute index via sqrt(index)·BUBBLE.
  */
-export function slotRestPosition(slot: number): [number, number, number] {
-  const radius = Math.sqrt(slot) * NODE_DENSITY_BUBBLE;
-  const [sx, sy, sz] = sphericalFibonacci(slot, MAX_NODES);
-  return [sx * radius, sy * radius, sz * radius];
+function latticePosition(
+  absoluteIndex: number,
+  tier1Based: number,
+): [number, number, number] {
+  const radius = Math.sqrt(absoluteIndex) * NODE_DENSITY_BUBBLE;
+  const [sx, sy, sz] = sphericalFibonacci(absoluteIndex, MAX_NODES);
+  const x = sx * radius;
+  const y = sy * radius;
+  const z = sz * radius;
+  void tier1Based;
+  return [x, y, z];
 }
 
 function normalizeColor(
@@ -141,6 +154,15 @@ function certaintyToRGB(c: number): [number, number, number] {
   return [0.5 * (1 - t), 0, 0.8 + 0.2 * t];
 }
 
+/** Canonical RCMT slot palette mirrored from OnnxWorkerManager.SLOT_COLORS. */
+const TIER_COLORS: ReadonlyArray<[number, number, number]> = [
+  [0.0, 1.0, 1.0], // 1 Cyan   — Facts
+  [0.0, 1.0, 0.0], // 2 Green  — Scenario
+  [1.0, 1.0, 0.0], // 3 Yellow — Metric
+  [1.0, 0.5, 0.0], // 4 Orange — Theory
+  [0.5, 0.0, 1.0], // 5 Purple — Dream
+];
+
 export function nodesToFrame(nodes: RCMTNode[]): Float32Array {
   const buf = new Float32Array(MAX_NODES * STRIDE);
   nodes.forEach((node, i) => {
@@ -158,9 +180,31 @@ export function nodesToFrame(nodes: RCMTNode[]): Float32Array {
   return buf;
 }
 
+/** Build the static tier-lookup table once. Slot i ∈ [TIER_STARTS[t], TIER_STARTS[t]+TIER_CAPS[t]) → tier (t+1). */
+function buildSlotTier(): Uint8Array {
+  const arr = new Uint8Array(MAX_NODES);
+  for (let t = 0; t < TIER_CAPS.length; t++) {
+    const start = TIER_STARTS[t];
+    const end = start + TIER_CAPS[t];
+    for (let i = start; i < end; i++) arr[i] = t + 1;
+  }
+  return arr;
+}
+
+/** Fresh per-tier FIFOs, each containing that tier's full slot range in order. */
+function buildVacantByTier(): number[][] {
+  return TIER_CAPS.map((cap, t) => {
+    const start = TIER_STARTS[t];
+    const out = new Array<number>(cap);
+    for (let i = 0; i < cap; i++) out[i] = start + i;
+    return out;
+  });
+}
+
 /**
- * FIFO-preserving append. Uses a Set ONLY for dedup membership; never
- * reconstructs from a Set (which would collapse insertion order).
+ * Append `additions` to `existing` without breaking FIFO order.
+ * Uses a Set ONLY for dedup membership checks; never reconstructs from a Set
+ * (which would collapse the insertion order).
  */
 function appendUniqueFIFO(existing: number[], additions: number[]): number[] {
   if (additions.length === 0) return existing;
@@ -175,48 +219,16 @@ function appendUniqueFIFO(existing: number[], additions: number[]): number[] {
   return result;
 }
 
-/** Build the initial vacant-by-tier registry: every slot vacant, in its tier. */
-function freshVacantByTier(): number[][] {
-  const out: number[][] = [];
-  for (let t = 0; t < TIER_COUNT; t++) {
-    const start = TIER_OFFSETS[t];
-    const end = TIER_OFFSETS[t + 1];
-    const arr = new Array<number>(end - start);
-    for (let i = 0; i < arr.length; i++) arr[i] = start + i;
-    out.push(arr);
-  }
-  return out;
+/** L2-normalize in place. No-op if already unit length. Cheap insurance. */
+function l2Normalize(v: Float32Array): Float32Array {
+  let sumSq = 0;
+  for (let i = 0; i < v.length; i++) sumSq += v[i] * v[i];
+  if (sumSq <= 0) return v;
+  const inv = 1 / Math.sqrt(sumSq);
+  if (Math.abs(inv - 1) < 1e-6) return v;
+  for (let i = 0; i < v.length; i++) v[i] *= inv;
+  return v;
 }
-
-/** Compute dot product of an incoming embedding with the slot's stored embedding. */
-function dotWithSlot(
-  embedding: Float32Array,
-  bank: Float32Array,
-  slot: number,
-): number {
-  let s = 0;
-  const base = slot * EMBED_DIM;
-  for (let i = 0; i < EMBED_DIM; i++) s += embedding[i] * bank[base + i];
-  return s;
-}
-
-// ── Promotion animation record ──────────────────────────────────────
-export interface PromotionAnim {
-  /** The slot being animated (destination slot, occupied for the full duration). */
-  destSlot: number;
-  fromPos: [number, number, number];
-  toPos: [number, number, number];
-  fromColor: [number, number, number];
-  toColor: [number, number, number];
-  baseScale: number;
-  startMs: number;
-}
-
-export type ReinforceResult =
-  | { kind: "reinforced"; slotIndex: number; similarity: number; promoted: boolean }
-  | { kind: "injected"; slotIndex: number }
-  | { kind: "tier-full"; slotIndex: null }
-  | { kind: "failed"; slotIndex: null };
 
 interface SaccadeStore {
   mockFrames: Float32Array[];
@@ -224,26 +236,29 @@ interface SaccadeStore {
   totalFrames: number;
   isFileLoaded: boolean;
 
-  /** Per-tier vacant FIFOs. 5 arrays, one per ontological tier (1-indexed externally). */
-  vacantByTier: number[][];
+  // ── Per-tier slot bookkeeping (Task #3) ────────────────────────
+  vacantSlotsByTier: number[][];
+  /** Live occupancy per tier (1-based — read as tierCounts[tierIndex-1]). */
+  tierCounts: number[];
+  /** O(1) tier lookup, 1-based. Allocated once; never resized. */
+  slotTier: Uint8Array;
+  /** L2-normalized 384-d embedding per slot, packed contiguously. */
+  embeddings: Float32Array;
+  reinforcementCount: Uint8Array;
+  injectedAt: Float64Array;
+  mass: Float32Array;
+  animStartTime: Float64Array;
+  animFromPos: Float32Array;
+  animToPos: Float32Array;
+
   spawnTime: Float32Array;
   workerReady: boolean;
-
-  /** Pre-allocated 12.28 MB embedding bank: Float32Array(8000 * 384). */
-  embeddings: Float32Array;
-  /** Per-slot reinforcement counter. Cleared on inject/promote/blast. */
-  reinforcementCount: Uint16Array;
-  /**
-   * Active promotion animations keyed by destination slot. Mutated in place
-   * (Map is a stable reference; readers in useFrame iterate every tick).
-   */
-  promotionAnims: Map<number, PromotionAnim>;
 
   // ── Spatial index ─────────────────────────────────────────────
   collisionBVH: MeshBVH | null;
   bvhDirty: boolean;
 
-  // ── Selection ─────────────────────────────────────────────────
+  // ── Selection (VRAM-aware) ────────────────────────────────────
   selectedSlots: Set<number>;
   lassoEventTick: number;
   lassoEventCount: number;
@@ -257,8 +272,15 @@ interface SaccadeStore {
   setVacantSlotRegistry: (prunedIndices: number[]) => void;
 
   /**
-   * Legacy direct-write injection (no embedding, no reinforcement check).
-   * New code should prefer reinforceOrInject. Returns the slot index used.
+   * Inject a classified phrase into the appropriate tier's cache. If an
+   * embedding is provided and cosine-similarity > REINFORCE_SIM_THRESHOLD
+   * against any active slot's stored embedding, the call is rerouted to
+   * reinforcement (no new slot consumed). When the tier is full, the
+   * lowest-Health slot in that tier is evicted (NOT the globally oldest —
+   * Dream pressure cannot evict Facts).
+   *
+   * Returns the slot index used (existing or newly-allocated), or null if
+   * something pathological happened (no frame, partition exhausted).
    */
   injectLiveIntentVector: (opts: {
     slot: number;
@@ -267,23 +289,12 @@ interface SaccadeStore {
       | { r: number; g: number; b: number }
       | [number, number, number]
       | number;
+    /** Optional L2-normalized 384-d embedding. Without it, reinforcement is skipped. */
+    embedding?: Float32Array | null;
   }) => number | null;
 
-  /**
-   * Embedding-aware injection. Scans all occupied slots for cosine
-   * similarity > REINFORCE_THRESHOLD; if found, reinforces the existing slot
-   * (and possibly promotes it inward); otherwise allocates from the target
-   * tier's FIFO and stores the embedding.
-   */
-  reinforceOrInject: (opts: {
-    slot: number;
-    textLength: number;
-    colorRGB:
-      | { r: number; g: number; b: number }
-      | [number, number, number]
-      | number;
-    embedding: Float32Array;
-  }) => ReinforceResult;
+  /** Background decay sweep — evaporates slots whose Health has fallen below threshold. */
+  decaySweep: () => void;
 
   markBVHDirty: () => void;
   rebuildBVH: () => void;
@@ -292,34 +303,37 @@ interface SaccadeStore {
   setSelectedSlots: (slots: Set<number>) => void;
   clearSelection: () => void;
   blastSelectedSlots: () => number;
-
-  /** Total vacant slots across all tiers (cheap; sums 5 ints). */
-  totalVacant: () => number;
-
-  /** Internal — promote a slot inward. Returns true on success. */
-  /** Returns destination slot on success, null on failure. */
-  _promoteSlot: (fromSlot: number, newTier: 1 | 2 | 3 | 4) => number | null;
 }
 
+// ── Module-init typed arrays (allocated once) ─────────────────────────
+const _slotTier = buildSlotTier();
+const _embeddings = new Float32Array(MAX_NODES * EMBEDDING_DIM);
+const _reinforcementCount = new Uint8Array(MAX_NODES);
+const _injectedAt = new Float64Array(MAX_NODES);
+const _mass = new Float32Array(MAX_NODES);
+const _animStartTime = new Float64Array(MAX_NODES);
+const _animFromPos = new Float32Array(MAX_NODES * 3);
+const _animToPos = new Float32Array(MAX_NODES * 3);
+
 export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
-  // Start EMPTY so the mount-time `seedFromNodes` path is the single source
-  // of truth for initial occupancy. A pre-allocated frame here would leave
-  // `vacantByTier` fully vacant while slots already hold legacy nodes,
-  // letting the allocator hand out already-occupied indices. Components
-  // gate on `mockFrames[activeFrameIndex]` being defined.
-  mockFrames: [],
+  mockFrames: [new Float32Array(MAX_NODES * STRIDE)],
   activeFrameIndex: 0,
-  totalFrames: 0,
+  totalFrames: 1,
   isFileLoaded: false,
-  vacantByTier: freshVacantByTier(),
+
+  vacantSlotsByTier: buildVacantByTier(),
+  tierCounts: TIER_CAPS.map(() => 0),
+  slotTier: _slotTier,
+  embeddings: _embeddings,
+  reinforcementCount: _reinforcementCount,
+  injectedAt: _injectedAt,
+  mass: _mass,
+  animStartTime: _animStartTime,
+  animFromPos: _animFromPos,
+  animToPos: _animToPos,
+
   spawnTime: new Float32Array(MAX_NODES),
   workerReady: false,
-
-  // 8000 * 384 * 4 bytes = 12,288,000 bytes = 12.288 MB. Allocated once,
-  // mutated in place via .set(). CTO mandate: zero per-slot JS-array indirection.
-  embeddings: new Float32Array(MAX_NODES * EMBED_DIM),
-  reinforcementCount: new Uint16Array(MAX_NODES),
-  promotionAnims: new Map<number, PromotionAnim>(),
 
   collisionBVH: null,
   bvhDirty: true,
@@ -350,24 +364,12 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
   },
 
   loadFile: (file) => {
-    const { workerReady, initWorker, spawnTime, reinforcementCount, embeddings } = get();
+    const { workerReady, initWorker, spawnTime } = get();
     if (!workerReady) initWorker();
     SaccadeWorker.loadFile(file);
     for (let i = 0; i < 20; i++) SaccadeWorker.seekFrame(i);
     spawnTime.fill(0);
-    reinforcementCount.fill(0);
-    // Wipe the embedding bank — stale vectors from the prior session must not
-    // influence cosine reinforcement after a file load. The bank is rebuilt
-    // organically as new live injections happen on top of the replay.
-    embeddings.fill(0);
-    get().promotionAnims.clear();
-    set({
-      isFileLoaded: false,
-      mockFrames: [],
-      activeFrameIndex: 0,
-      vacantByTier: freshVacantByTier(),
-      bvhDirty: true,
-    });
+    set({ isFileLoaded: false, mockFrames: [], activeFrameIndex: 0, bvhDirty: true });
   },
 
   setFrameIndex: (index) => {
@@ -379,116 +381,207 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
 
   seedFromNodes: (nodes) => {
     const frame = nodesToFrame(nodes);
-    const occupied = Math.min(nodes.length, MAX_NODES);
-    // Mark first N slots as occupied — they fall into whichever tier their
-    // index lands in (typically all Fact tier for small seeds).
-    const vacantByTier = freshVacantByTier();
-    for (let t = 0; t < TIER_COUNT; t++) {
-      vacantByTier[t] = vacantByTier[t].filter((idx) => idx >= occupied);
+    // Legacy seeded nodes are treated as Fact-tier residents (slot 1). They
+    // occupy absolute indices 0..N-1, all of which belong to the Fact shell
+    // (0..1999). If N exceeds Fact's cap, the overflow is silently dropped
+    // from the cache bookkeeping — the legacy graph is being retired anyway.
+    const factCap = TIER_CAPS[0];
+    const occupied = Math.min(nodes.length, factCap);
+
+    const vacantSlotsByTier = buildVacantByTier();
+    vacantSlotsByTier[0] = vacantSlotsByTier[0].slice(occupied);
+
+    const state = get();
+    state.spawnTime.fill(0);
+    state.mass.fill(0);
+    state.reinforcementCount.fill(0);
+    state.injectedAt.fill(0);
+    state.animStartTime.fill(0);
+    state.embeddings.fill(0);
+
+    const now = performance.now();
+    for (let i = 0; i < occupied; i++) {
+      state.mass[i] = frame[i * STRIDE + 6];
+      state.injectedAt[i] = now;
     }
-    get().spawnTime.fill(0);
-    get().reinforcementCount.fill(0);
-    get().promotionAnims.clear();
+
+    const tierCounts = TIER_CAPS.map(() => 0);
+    tierCounts[0] = occupied;
+
     set({
       mockFrames: [frame],
       totalFrames: 1,
       activeFrameIndex: 0,
-      vacantByTier,
+      vacantSlotsByTier,
+      tierCounts,
       bvhDirty: true,
     });
   },
 
-  /**
-   * Live-mode bridge from legacy useStore.nodes. Mutates the active frame
-   * IN PLACE so VRAM-injected slots (held at high indices via the per-tier
-   * FIFOs) survive across legacy node updates. Does NOT push new history
-   * frames — that's BINARY mode's job.
-   */
   updateLiveFrame: (nodes) => {
-    const { mockFrames, activeFrameIndex, vacantByTier } = get();
-    let frame = mockFrames[activeFrameIndex];
-    let totalFrames = get().totalFrames;
-    if (!frame) {
-      frame = new Float32Array(MAX_NODES * STRIDE);
-      const updated = [...mockFrames];
-      updated[activeFrameIndex] = frame;
-      totalFrames = Math.max(totalFrames, activeFrameIndex + 1);
-      set({ mockFrames: updated, totalFrames });
-    }
-    // Track which legacy-node slots are newly occupied so we can evict them
-    // from per-tier vacancy. Without this, the per-tier allocator can later
-    // hand out a slot that's already showing a legacy node and silently
-    // overwrite it. This is the source-of-truth fix called out in review.
-    const newlyOccupiedByTier: number[][] = [[], [], [], [], []];
-    for (const node of nodes) {
-      if (node.index < 0 || node.index >= MAX_NODES) continue;
-      const off = node.index * STRIDE;
-      const wasVacant = frame[off + 6] <= 0;
-      const [r, g, b] = certaintyToRGB(node.certainty);
-      frame[off + 0] = node.position[0];
-      frame[off + 1] = node.position[1];
-      frame[off + 2] = node.position[2];
-      frame[off + 3] = r;
-      frame[off + 4] = g;
-      frame[off + 5] = b;
-      frame[off + 6] = node.size;
-      if (wasVacant && node.size > 0) {
-        newlyOccupiedByTier[tierForSlot(node.index) - 1].push(node.index);
-      }
-    }
-    // Reconcile per-tier vacancy by removing newly occupied indices.
-    let vacancyChanged = false;
-    const nextByTier = vacantByTier.map((arr, t) => {
-      const occ = newlyOccupiedByTier[t];
-      if (occ.length === 0) return arr;
-      const occSet = new Set(occ);
-      const filtered = arr.filter((idx) => !occSet.has(idx));
-      if (filtered.length !== arr.length) vacancyChanged = true;
-      return filtered;
+    const frame = nodesToFrame(nodes);
+    set((state) => {
+      const updated = [...state.mockFrames];
+      const trimmed = updated.length >= 200 ? updated.slice(-199) : updated;
+      return {
+        mockFrames: [...trimmed, frame],
+        totalFrames: trimmed.length + 1,
+        activeFrameIndex: trimmed.length,
+        bvhDirty: true,
+      };
     });
-    if (vacancyChanged) set({ vacantByTier: nextByTier, bvhDirty: true });
-    else set({ bvhDirty: true });
   },
 
   setVacantSlotRegistry: (prunedIndices) => {
-    if (prunedIndices.length === 0) return;
     set((state) => {
-      const { spawnTime, reinforcementCount } = state;
-      // Bucket pruned indices by tier and FIFO-append per-tier.
-      const buckets: number[][] = [[], [], [], [], []];
+      const slotTier = state.slotTier;
+      const nextByTier = state.vacantSlotsByTier.map((arr) => arr.slice());
+      const nextCounts = state.tierCounts.slice();
+      const additionsByTier: number[][] = TIER_CAPS.map(() => []);
+
       for (const idx of prunedIndices) {
         if (idx < 0 || idx >= MAX_NODES) continue;
-        spawnTime[idx] = 0;
-        reinforcementCount[idx] = 0;
-        buckets[tierForSlot(idx) - 1].push(idx);
+        const tier = slotTier[idx];
+        if (tier < 1 || tier > TIER_CAPS.length) continue;
+        // Clear per-slot state so the next inhabitant gets a clean baseline.
+        state.spawnTime[idx] = 0;
+        state.mass[idx] = 0;
+        state.reinforcementCount[idx] = 0;
+        state.injectedAt[idx] = 0;
+        state.animStartTime[idx] = 0;
+        additionsByTier[tier - 1].push(idx);
       }
-      const next = state.vacantByTier.map((arr, t) =>
-        buckets[t].length === 0 ? arr : appendUniqueFIFO(arr, buckets[t]),
-      );
-      return { vacantByTier: next, bvhDirty: true };
+
+      for (let t = 0; t < TIER_CAPS.length; t++) {
+        if (additionsByTier[t].length === 0) continue;
+        nextByTier[t] = appendUniqueFIFO(nextByTier[t], additionsByTier[t]);
+        nextCounts[t] = Math.max(0, nextCounts[t] - additionsByTier[t].length);
+      }
+
+      return {
+        vacantSlotsByTier: nextByTier,
+        tierCounts: nextCounts,
+        bvhDirty: true,
+      };
     });
   },
 
-  injectLiveIntentVector: ({ slot, textLength, colorRGB }) => {
-    const { mockFrames, activeFrameIndex, vacantByTier, spawnTime } = get();
+  injectLiveIntentVector: ({ slot, textLength, colorRGB, embedding }) => {
+    const state = get();
+    const {
+      mockFrames,
+      activeFrameIndex,
+      vacantSlotsByTier,
+      spawnTime,
+      slotTier,
+      embeddings,
+      mass,
+      injectedAt,
+      reinforcementCount,
+      tierCounts,
+    } = state;
     const currentFrame = mockFrames[activeFrameIndex];
     if (!currentFrame) {
       console.warn("[Saccade] No active frame buffer — injection aborted.");
       return null;
     }
-    const tierIdx = Math.max(1, Math.min(TIER_COUNT, slot)) - 1;
-    const tierVacant = vacantByTier[tierIdx];
-    if (tierVacant.length === 0) {
-      console.warn(`[Saccade] Tier ${tierIdx + 1} FULL — awaiting reclamation.`);
-      return null;
-    }
 
-    const targetIndex = tierVacant[0];
-    const [x, y, z] = slotRestPosition(targetIndex);
+    const tier1Based = Math.max(1, Math.min(TIER_CAPS.length, slot | 0));
+    const tierIdx = tier1Based - 1;
+
     const safeScale = Math.min(
       MIN_SCALE + textLength * SCALE_PER_CHAR,
       MAX_SCALE,
     );
+
+    // ── Step 1: reinforcement check ──────────────────────────────
+    // Scan every active slot's stored embedding for max cosine similarity.
+    // Both sides are L2-normalized, so cosine = dot product.
+    let reinforcedSlot = -1;
+    if (embedding && embedding.length === EMBEDDING_DIM) {
+      let bestSim = -Infinity;
+      let bestIdx = -1;
+      for (let i = 0; i < MAX_NODES; i++) {
+        if (mass[i] <= 0) continue;
+        const base = i * EMBEDDING_DIM;
+        let s = 0;
+        for (let k = 0; k < EMBEDDING_DIM; k++) {
+          s += embedding[k] * embeddings[base + k];
+        }
+        if (s > bestSim) {
+          bestSim = s;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx >= 0 && bestSim > REINFORCE_SIM_THRESHOLD) {
+        reinforcedSlot = bestIdx;
+      }
+    }
+
+    const now = performance.now();
+
+    if (reinforcedSlot >= 0) {
+      const i = reinforcedSlot;
+      const off = i * STRIDE;
+      spawnTime[i] = now;
+      injectedAt[i] = now;
+      mass[i] = Math.min(mass[i] + MASS_REINFORCE_INCR, MASS_REINFORCE_CAP);
+      reinforcementCount[i] = Math.min(255, reinforcementCount[i] + 1);
+      currentFrame[off + 6] = mass[i];
+
+      const reinforcedTier = slotTier[i];
+      // Promotion gated to slots 4 and 5 only.
+      if (
+        (reinforcedTier === 4 || reinforcedTier === 5) &&
+        reinforcementCount[i] >= REINFORCE_PROMOTE_COUNT
+      ) {
+        const promoted = promoteSlot(i, get, set);
+        return promoted ?? i;
+      }
+      set({ bvhDirty: true });
+      return i;
+    }
+
+    // ── Step 2: allocate a slot in the target tier ───────────────
+    let targetIndex: number;
+    let nextVacantForTier = vacantSlotsByTier[tierIdx];
+    if (nextVacantForTier.length > 0) {
+      targetIndex = nextVacantForTier[0];
+      nextVacantForTier = nextVacantForTier.slice(1);
+    } else {
+      // Tier full → evict lowest-Health slot in this tier (NOT globally).
+      const start = TIER_STARTS[tierIdx];
+      const end = start + TIER_CAPS[tierIdx];
+      const lambda = TIER_LAMBDA[tierIdx];
+      let worstHealth = Infinity;
+      let worstIdx = -1;
+      for (let i = start; i < end; i++) {
+        if (mass[i] <= 0) continue;
+        const dt = (now - injectedAt[i]) / 1000;
+        const health = Math.exp(-lambda * dt);
+        if (health < worstHealth) {
+          worstHealth = health;
+          worstIdx = i;
+        }
+      }
+      if (worstIdx < 0) {
+        console.warn(
+          `[Saccade] Tier ${tier1Based} reports full but no occupant found — injection aborted.`,
+        );
+        return null;
+      }
+      targetIndex = worstIdx;
+      // Wipe the evicted slot's state; we'll repopulate below.
+      spawnTime[worstIdx] = 0;
+      mass[worstIdx] = 0;
+      reinforcementCount[worstIdx] = 0;
+      injectedAt[worstIdx] = 0;
+      // No vacant entry to splice in — we're reusing the same index.
+      // nextVacantForTier stays []
+    }
+
+    // ── Step 3: write position, color, scale, embedding, state ──
+    const [x, y, z] = latticePosition(targetIndex, tier1Based);
     const [r, g, b] = normalizeColor(colorRGB);
 
     const offset = targetIndex * STRIDE;
@@ -499,198 +592,105 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     currentFrame[offset + 4] = g;
     currentFrame[offset + 5] = b;
     currentFrame[offset + 6] = safeScale;
-    spawnTime[targetIndex] = performance.now();
-    get().reinforcementCount[targetIndex] = 0;
 
-    const nextByTier = vacantByTier.slice();
-    nextByTier[tierIdx] = tierVacant.slice(1);
-    set({ vacantByTier: nextByTier, bvhDirty: true });
+    spawnTime[targetIndex] = now;
+    injectedAt[targetIndex] = now;
+    mass[targetIndex] = safeScale;
+    reinforcementCount[targetIndex] = 0;
+
+    if (embedding && embedding.length === EMBEDDING_DIM) {
+      const base = targetIndex * EMBEDDING_DIM;
+      // Defensive copy + normalize. Embeddings are normalized at the worker
+      // boundary already, but normalizing here is cheap insurance against
+      // future model swaps and makes cosine compare unambiguous.
+      for (let k = 0; k < EMBEDDING_DIM; k++) {
+        embeddings[base + k] = embedding[k];
+      }
+      // Normalize in place over this slot's slice. (Building a subview
+      // avoids allocation.)
+      const slice = embeddings.subarray(base, base + EMBEDDING_DIM);
+      l2Normalize(slice);
+    } else if (embedding === undefined || embedding === null) {
+      // Clear any stale embedding so future cosine scans don't match a
+      // recycled slot's previous occupant.
+      const base = targetIndex * EMBEDDING_DIM;
+      for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[base + k] = 0;
+    }
+
+    // ── Step 4: tier bookkeeping ────────────────────────────────
+    const nextByTier = vacantSlotsByTier.map((arr, t) =>
+      t === tierIdx ? nextVacantForTier : arr,
+    );
+    const nextCounts = tierCounts.slice();
+    // If we evicted (no vacant entry consumed), count stays the same.
+    // If we consumed a vacant, count goes up by 1.
+    if (vacantSlotsByTier[tierIdx].length > 0) {
+      nextCounts[tierIdx] = Math.min(
+        TIER_CAPS[tierIdx],
+        nextCounts[tierIdx] + 1,
+      );
+    }
+
+    set({
+      vacantSlotsByTier: nextByTier,
+      tierCounts: nextCounts,
+      bvhDirty: true,
+    });
     return targetIndex;
   },
 
-  reinforceOrInject: ({ slot, textLength, colorRGB, embedding }) => {
-    const {
-      mockFrames,
-      activeFrameIndex,
-      vacantByTier,
-      spawnTime,
-      embeddings,
-      reinforcementCount,
-    } = get();
-    const currentFrame = mockFrames[activeFrameIndex];
-    if (!currentFrame) return { kind: "failed", slotIndex: null };
-
-    // ── 1. Scan occupied slots for cosine reinforcement ─────────────
-    // 8000 * 384 = 3.07M FLOPs per scan; ~0.3ms in modern V8. Acceptable.
-    let bestSlot = -1;
-    let bestSim = -Infinity;
-    for (let i = 0; i < MAX_NODES; i++) {
-      if (currentFrame[i * STRIDE + 6] <= 0) continue;
-      // Skip slots whose embedding bank is all-zero (legacy seed nodes that
-      // never had an embedding stored).
-      const base = i * EMBED_DIM;
-      if (embeddings[base] === 0 && embeddings[base + 1] === 0) continue;
-      const s = dotWithSlot(embedding, embeddings, i);
-      if (s > bestSim) {
-        bestSim = s;
-        bestSlot = i;
-      }
-    }
-
-    if (bestSlot >= 0 && bestSim > REINFORCE_THRESHOLD) {
-      // ── 2a. Reinforce existing slot ────────────────────────────────
-      const off = bestSlot * STRIDE;
-      currentFrame[off + 6] = Math.min(
-        MAX_SCALE,
-        currentFrame[off + 6] + REINFORCE_BOOST,
-      );
-      spawnTime[bestSlot] = performance.now(); // re-trigger pop animation
-      reinforcementCount[bestSlot] = reinforcementCount[bestSlot] + 1;
-
-      const curTier = tierForSlot(bestSlot);
-      let promoted = false;
-      let resultSlot = bestSlot;
-      if (
-        reinforcementCount[bestSlot] >= PROMOTION_THRESHOLD &&
-        curTier > 1
-      ) {
-        const destSlot = get()._promoteSlot(bestSlot, (curTier - 1) as 1 | 2 | 3 | 4);
-        if (destSlot !== null) {
-          promoted = true;
-          // After promotion, bestSlot is zeroed and the node lives at destSlot.
-          // Network broadcasts and console logs must reference the destination
-          // or they will advertise an empty slot.
-          resultSlot = destSlot;
-        }
-      }
-      set({ bvhDirty: true });
-      return { kind: "reinforced", slotIndex: resultSlot, similarity: bestSim, promoted };
-    }
-
-    // ── 2b. Fresh inject into target tier's FIFO ──────────────────
-    const tierIdx = Math.max(1, Math.min(TIER_COUNT, slot)) - 1;
-    const tierVacant = vacantByTier[tierIdx];
-    if (tierVacant.length === 0) {
-      return { kind: "tier-full", slotIndex: null };
-    }
-
-    const targetIndex = tierVacant[0];
-    const [x, y, z] = slotRestPosition(targetIndex);
-    const safeScale = Math.min(
-      MIN_SCALE + textLength * SCALE_PER_CHAR,
-      MAX_SCALE,
-    );
-    const [r, g, b] = normalizeColor(colorRGB);
-
-    const offset = targetIndex * STRIDE;
-    currentFrame[offset + 0] = x;
-    currentFrame[offset + 1] = y;
-    currentFrame[offset + 2] = z;
-    currentFrame[offset + 3] = r;
-    currentFrame[offset + 4] = g;
-    currentFrame[offset + 5] = b;
-    currentFrame[offset + 6] = safeScale;
-    spawnTime[targetIndex] = performance.now();
-    reinforcementCount[targetIndex] = 0;
-
-    // Store embedding into the pre-allocated bank at the slot's offset.
-    embeddings.set(embedding, targetIndex * EMBED_DIM);
-
-    const nextByTier = vacantByTier.slice();
-    nextByTier[tierIdx] = tierVacant.slice(1);
-    set({ vacantByTier: nextByTier, bvhDirty: true });
-    return { kind: "injected", slotIndex: targetIndex };
-  },
-
-  _promoteSlot: (fromSlot: number, newTier: 1 | 2 | 3 | 4): number | null => {
+  decaySweep: () => {
     const state = get();
-    const {
-      mockFrames,
-      activeFrameIndex,
-      vacantByTier,
-      embeddings,
-      reinforcementCount,
-      promotionAnims,
-      spawnTime,
-    } = state;
+    const { mockFrames, activeFrameIndex, mass, injectedAt, slotTier, spawnTime, embeddings } = state;
     const frame = mockFrames[activeFrameIndex];
-    if (!frame) return null;
+    if (!frame) return;
 
-    const newTierIdx = newTier - 1;
-    const destVacant = vacantByTier[newTierIdx];
-    if (destVacant.length === 0) {
-      // Destination tier full — leave node in place, reset counter to try again later.
-      reinforcementCount[fromSlot] = 0;
-      return null;
+    const now = performance.now();
+    const pruned: number[] = [];
+
+    for (let i = 0; i < MAX_NODES; i++) {
+      if (mass[i] <= 0) continue;
+      const tier = slotTier[i];
+      if (tier < 1) continue;
+      const lambda = TIER_LAMBDA[tier - 1];
+      const dt = (now - injectedAt[i]) / 1000;
+      const health = Math.exp(-lambda * dt);
+      if (health < HEALTH_DEATH) {
+        const off = i * STRIDE;
+        frame[off + 6] = 0;
+        mass[i] = 0;
+        spawnTime[i] = 0;
+        injectedAt[i] = 0;
+        // Clear embedding so a recycled slot can't false-match.
+        const base = i * EMBEDDING_DIM;
+        for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[base + k] = 0;
+        pruned.push(i);
+      }
     }
 
-    const toSlot = destVacant[0];
-    const fromOff = fromSlot * STRIDE;
-    const toOff = toSlot * STRIDE;
+    if (pruned.length === 0) return;
 
-    const fromPos: [number, number, number] = [
-      frame[fromOff + 0],
-      frame[fromOff + 1],
-      frame[fromOff + 2],
-    ];
-    const fromColor: [number, number, number] = [
-      frame[fromOff + 3],
-      frame[fromOff + 4],
-      frame[fromOff + 5],
-    ];
-    const baseScale = frame[fromOff + 6];
-    const toPos = slotRestPosition(toSlot);
-    const toColor = colorForSlot(newTier);
-
-    // Copy embedding from old slot → new slot.
-    embeddings.set(
-      embeddings.subarray(fromSlot * EMBED_DIM, (fromSlot + 1) * EMBED_DIM),
-      toSlot * EMBED_DIM,
-    );
-
-    // Initialize destination at FROM position so animation interpolates cleanly.
-    frame[toOff + 0] = fromPos[0];
-    frame[toOff + 1] = fromPos[1];
-    frame[toOff + 2] = fromPos[2];
-    frame[toOff + 3] = fromColor[0];
-    frame[toOff + 4] = fromColor[1];
-    frame[toOff + 5] = fromColor[2];
-    frame[toOff + 6] = baseScale;
-    spawnTime[toSlot] = 0; // promotion animation handles its own visual flair
-    reinforcementCount[toSlot] = 0;
-
-    // Free the old slot.
-    frame[fromOff + 6] = 0;
-    spawnTime[fromSlot] = 0;
-    reinforcementCount[fromSlot] = 0;
-    // Zero its embedding bank entry to avoid stale matches.
-    embeddings.fill(
-      0,
-      fromSlot * EMBED_DIM,
-      (fromSlot + 1) * EMBED_DIM,
-    );
-
-    // Register animation (Map mutated in place — promotionAnims ref stable).
-    promotionAnims.set(toSlot, {
-      destSlot: toSlot,
-      fromPos,
-      toPos,
-      fromColor,
-      toColor,
-      baseScale,
-      startMs: performance.now(),
+    // Route evaporated slots back to their tier FIFOs.
+    set((s) => {
+      const nextByTier = s.vacantSlotsByTier.map((arr) => arr.slice());
+      const nextCounts = s.tierCounts.slice();
+      const additionsByTier: number[][] = TIER_CAPS.map(() => []);
+      for (const idx of pruned) {
+        const tier = slotTier[idx];
+        if (tier < 1 || tier > TIER_CAPS.length) continue;
+        additionsByTier[tier - 1].push(idx);
+      }
+      for (let t = 0; t < TIER_CAPS.length; t++) {
+        if (additionsByTier[t].length === 0) continue;
+        nextByTier[t] = appendUniqueFIFO(nextByTier[t], additionsByTier[t]);
+        nextCounts[t] = Math.max(0, nextCounts[t] - additionsByTier[t].length);
+      }
+      return {
+        vacantSlotsByTier: nextByTier,
+        tierCounts: nextCounts,
+        bvhDirty: true,
+      };
     });
-
-    // Update vacant pools: pop dest, return source.
-    const nextByTier = vacantByTier.slice();
-    nextByTier[newTierIdx] = destVacant.slice(1);
-    const fromTierIdx = tierForSlot(fromSlot) - 1;
-    nextByTier[fromTierIdx] = appendUniqueFIFO(
-      nextByTier[fromTierIdx],
-      [fromSlot],
-    );
-    set({ vacantByTier: nextByTier, bvhDirty: true });
-    return toSlot;
   },
 
   markBVHDirty: () => set({ bvhDirty: true }),
@@ -721,8 +721,9 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
           positions[baseV + v * 3 + 2] = cz + TRI_OFFSETS[v][2] * r;
         }
       } else {
-        // Dead slot parked at Infinity (Task #1 locked spec).
-        for (let v = 0; v < 9; v++) positions[baseV + v] = Infinity;
+        for (let v = 0; v < 9; v++) {
+          positions[baseV + v] = Infinity;
+        }
       }
     }
 
@@ -746,45 +747,220 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
   clearSelection: () => set({ selectedSlots: new Set<number>() }),
 
   blastSelectedSlots: () => {
-    const { mockFrames, activeFrameIndex, selectedSlots, spawnTime, reinforcementCount, embeddings } = get();
+    const state = get();
+    const { mockFrames, activeFrameIndex, selectedSlots, spawnTime, slotTier, mass, injectedAt, reinforcementCount, animStartTime, embeddings } = state;
     const frame = mockFrames[activeFrameIndex];
     if (!frame || selectedSlots.size === 0) return 0;
 
-    const purged: number[] = [];
+    const purgedByTier: number[][] = TIER_CAPS.map(() => []);
+    let purgedCount = 0;
     for (const slotIdx of selectedSlots) {
       if (slotIdx < 0 || slotIdx >= MAX_NODES) continue;
       const off = slotIdx * STRIDE;
       frame[off + 6] = 0;
       spawnTime[slotIdx] = 0;
+      mass[slotIdx] = 0;
+      injectedAt[slotIdx] = 0;
       reinforcementCount[slotIdx] = 0;
-      embeddings.fill(
-        0,
-        slotIdx * EMBED_DIM,
-        (slotIdx + 1) * EMBED_DIM,
-      );
-      purged.push(slotIdx);
+      animStartTime[slotIdx] = 0;
+      const base = slotIdx * EMBEDDING_DIM;
+      for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[base + k] = 0;
+      const tier = slotTier[slotIdx];
+      if (tier >= 1 && tier <= TIER_CAPS.length) {
+        purgedByTier[tier - 1].push(slotIdx);
+        purgedCount++;
+      }
     }
 
-    // Bucket by tier and return per-tier FIFO.
-    const buckets: number[][] = [[], [], [], [], []];
-    for (const idx of purged) buckets[tierForSlot(idx) - 1].push(idx);
-
-    set((state) => {
-      const next = state.vacantByTier.map((arr, t) =>
-        buckets[t].length === 0 ? arr : appendUniqueFIFO(arr, buckets[t]),
+    set((s) => {
+      const nextByTier = s.vacantSlotsByTier.map((arr, t) =>
+        appendUniqueFIFO(arr, purgedByTier[t]),
+      );
+      const nextCounts = s.tierCounts.map((c, t) =>
+        Math.max(0, c - purgedByTier[t].length),
       );
       return {
-        vacantByTier: next,
+        vacantSlotsByTier: nextByTier,
+        tierCounts: nextCounts,
         selectedSlots: new Set<number>(),
         bvhDirty: true,
       };
     });
 
-    return purged.length;
-  },
-
-  totalVacant: () => {
-    const v = get().vacantByTier;
-    return v[0].length + v[1].length + v[2].length + v[3].length + v[4].length;
+    return purgedCount;
   },
 }));
+
+/**
+ * Promote a slot one shell inward (Theory→Metric, Dream→Theory). Atomically:
+ *   1. Pop a free slot from the target tier's FIFO (or evict its lowest-Health
+ *      occupant if full).
+ *   2. Copy color, mass, embedding, injectedAt to the destination slot.
+ *   3. Recolor to the new tier's canonical color.
+ *   4. Stage the orbital-shift animation (from→to positions, anim start).
+ *   5. Free the source slot back to its FIFO and zero its state.
+ *
+ * Returns the destination slot index, or null if promotion couldn't happen
+ * (e.g. already at slot 1, target tier wholly full of irreplaceable nodes).
+ */
+function promoteSlot(
+  sourceIdx: number,
+  get: () => SaccadeStore,
+  set: (partial: Partial<SaccadeStore>) => void,
+): number | null {
+  const state = get();
+  const {
+    mockFrames,
+    activeFrameIndex,
+    slotTier,
+    vacantSlotsByTier,
+    tierCounts,
+    mass,
+    injectedAt,
+    embeddings,
+    spawnTime,
+    reinforcementCount,
+    animStartTime,
+    animFromPos,
+    animToPos,
+  } = state;
+
+  const sourceTier = slotTier[sourceIdx]; // 1-based
+  if (sourceTier <= 1) return null;
+  const targetTier = sourceTier - 1; // 1-based (inner shell)
+  const targetTierIdx = targetTier - 1;
+
+  const frame = mockFrames[activeFrameIndex];
+  if (!frame) return null;
+
+  // Allocate destination slot (free, or evict lowest-Health in target tier).
+  const now = performance.now();
+  let destIdx: number;
+  let nextVacantForTarget = vacantSlotsByTier[targetTierIdx];
+  let consumedVacant = false;
+  if (nextVacantForTarget.length > 0) {
+    destIdx = nextVacantForTarget[0];
+    nextVacantForTarget = nextVacantForTarget.slice(1);
+    consumedVacant = true;
+  } else {
+    const start = TIER_STARTS[targetTierIdx];
+    const end = start + TIER_CAPS[targetTierIdx];
+    const lambda = TIER_LAMBDA[targetTierIdx];
+    let worstHealth = Infinity;
+    let worstIdx = -1;
+    for (let i = start; i < end; i++) {
+      if (mass[i] <= 0) continue;
+      const dt = (now - injectedAt[i]) / 1000;
+      const health = Math.exp(-lambda * dt);
+      if (health < worstHealth) {
+        worstHealth = health;
+        worstIdx = i;
+      }
+    }
+    if (worstIdx < 0) return null;
+    destIdx = worstIdx;
+    // Wipe the evicted slot — destination is now logically empty.
+    const evictedOff = worstIdx * STRIDE;
+    frame[evictedOff + 6] = 0;
+    mass[worstIdx] = 0;
+    injectedAt[worstIdx] = 0;
+    reinforcementCount[worstIdx] = 0;
+    spawnTime[worstIdx] = 0;
+    animStartTime[worstIdx] = 0;
+  }
+
+  // ── Copy slot state source → dest ───────────────────────────────
+  const srcOff = sourceIdx * STRIDE;
+  const dstOff = destIdx * STRIDE;
+  const srcMass = mass[sourceIdx];
+  const srcInjectedAt = injectedAt[sourceIdx];
+
+  // Source's current rendered position becomes anim origin.
+  const fromX = frame[srcOff + 0];
+  const fromY = frame[srcOff + 1];
+  const fromZ = frame[srcOff + 2];
+
+  // Compute destination lattice position from its absolute index + new tier.
+  const [toX, toY, toZ] = latticePosition(destIdx, targetTier);
+
+  // New tier color (canonical palette).
+  const [newR, newG, newB] = TIER_COLORS[targetTier - 1];
+
+  // Write destination slot: positioned at the anim origin so visual continuity
+  // holds for this frame (the render loop will lerp toward toPos over 400 ms).
+  frame[dstOff + 0] = fromX;
+  frame[dstOff + 1] = fromY;
+  frame[dstOff + 2] = fromZ;
+  frame[dstOff + 3] = newR;
+  frame[dstOff + 4] = newG;
+  frame[dstOff + 5] = newB;
+  frame[dstOff + 6] = srcMass;
+
+  mass[destIdx] = srcMass;
+  injectedAt[destIdx] = srcInjectedAt;
+  reinforcementCount[destIdx] = 0; // reset on promotion
+  spawnTime[destIdx] = 0; // promotion has its own animation, not starburst
+
+  // Copy embedding.
+  const srcEmbBase = sourceIdx * EMBEDDING_DIM;
+  const dstEmbBase = destIdx * EMBEDDING_DIM;
+  for (let k = 0; k < EMBEDDING_DIM; k++) {
+    embeddings[dstEmbBase + k] = embeddings[srcEmbBase + k];
+  }
+
+  // Stage animation on destination slot.
+  animStartTime[destIdx] = now;
+  animFromPos[destIdx * 3 + 0] = fromX;
+  animFromPos[destIdx * 3 + 1] = fromY;
+  animFromPos[destIdx * 3 + 2] = fromZ;
+  animToPos[destIdx * 3 + 0] = toX;
+  animToPos[destIdx * 3 + 1] = toY;
+  animToPos[destIdx * 3 + 2] = toZ;
+
+  // ── Free source slot ────────────────────────────────────────────
+  frame[srcOff + 6] = 0;
+  mass[sourceIdx] = 0;
+  injectedAt[sourceIdx] = 0;
+  reinforcementCount[sourceIdx] = 0;
+  spawnTime[sourceIdx] = 0;
+  animStartTime[sourceIdx] = 0;
+  for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[srcEmbBase + k] = 0;
+
+  // Tier bookkeeping: source freed, dest claimed.
+  const sourceTierIdx = sourceTier - 1;
+  const nextByTier = vacantSlotsByTier.map((arr, t) => {
+    if (t === targetTierIdx) return nextVacantForTarget;
+    if (t === sourceTierIdx) return appendUniqueFIFO(arr, [sourceIdx]);
+    return arr;
+  });
+  const nextCounts = tierCounts.slice();
+  nextCounts[sourceTierIdx] = Math.max(0, nextCounts[sourceTierIdx] - 1);
+  if (consumedVacant) {
+    nextCounts[targetTierIdx] = Math.min(
+      TIER_CAPS[targetTierIdx],
+      nextCounts[targetTierIdx] + 1,
+    );
+  }
+  // If we evicted to make room, count stays the same on the target tier.
+
+  set({
+    vacantSlotsByTier: nextByTier,
+    tierCounts: nextCounts,
+    bvhDirty: true,
+  });
+
+  return destIdx;
+}
+
+// ── Decay sweep timer ─────────────────────────────────────────────────
+// NOT inside useFrame — the renderer must never block on memory hygiene.
+// HMR-safe: if a previous interval handle exists on the module, clear it.
+if (typeof window !== "undefined") {
+  const w = window as unknown as { __rcmtDecayInterval?: number };
+  if (w.__rcmtDecayInterval !== undefined) {
+    clearInterval(w.__rcmtDecayInterval);
+  }
+  w.__rcmtDecayInterval = window.setInterval(() => {
+    useSaccadeStore.getState().decaySweep();
+  }, DECAY_SWEEP_MS);
+}

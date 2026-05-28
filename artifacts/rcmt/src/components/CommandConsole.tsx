@@ -1,17 +1,18 @@
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { useStore } from "../store/useStore";
-import { useSaccadeStore, STRIDE, MAX_NODES } from "../store/useSaccadeStore";
+import { useSaccadeStore, TIER_CAPS } from "../store/useSaccadeStore";
 import { NetworkManager } from "../network/NetworkManager";
 import { OnnxWorker, colorForSlot, type OnnxStatus } from "../workers/OnnxWorkerManager";
 
 const MAX_LOG = 12;
 const SLOT_LABELS = ["FACT", "SCENARIO", "METRIC", "THEORY", "DREAM"];
+const SHORT_LABELS = ["Fact", "Scenario", "Metric", "Theory", "Dream"];
 
 export function CommandConsole() {
   const [input, setInput] = useState("");
   const [log, setLog] = useState<string[]>([
     "> RCMT PLATINUM MONOLITH v5.0 — ONLINE",
-    "> Sync core connected. Unified Fibonacci sphere initialized.",
+    "> Sync core connected. Fibonacci lattice initialized.",
     "> Booting ONNX intent classifier (MiniLM-L6-v2)…",
     "> Type a memory, fact, or idea — press ENTER to inject.",
   ]);
@@ -21,6 +22,7 @@ export function CommandConsole() {
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const inFlightRef = useRef(false);
+  const addNode = useStore((s) => s.addNode);
   const isLassoMode = useStore((s) => s.isLassoMode);
   const setLassoMode = useStore((s) => s.setLassoMode);
   // VRAM-aware selection (lasso writes here via the BVH hit-test).
@@ -29,16 +31,10 @@ export function CommandConsole() {
   // Pulses every time a lasso completes — drives the console log line below.
   const lassoEventTick = useSaccadeStore((s) => s.lassoEventTick);
   const lassoEventCount = useSaccadeStore((s) => s.lassoEventCount);
-  // Live node count = MAX_NODES − vacant. Sums all 5 per-tier FIFOs.
-  // Subscribe to vacantByTier so React re-renders when any tier's pool changes.
-  const vacantByTier = useSaccadeStore((s) => s.vacantByTier);
-  const vacantCount =
-    vacantByTier[0].length +
-    vacantByTier[1].length +
-    vacantByTier[2].length +
-    vacantByTier[3].length +
-    vacantByTier[4].length;
-  const nodeCount = MAX_NODES - vacantCount;
+  // Live per-tier occupancy. Reflects the 8k VRAM buffer, not the retiring
+  // legacy graph. tierCounts is 0-based (index 0 = Fact = slot 1).
+  const tierCounts = useSaccadeStore((s) => s.tierCounts);
+  const nodeCount = tierCounts.reduce((a, b) => a + b, 0);
 
   // Emit "> LASSO captured N slots" whenever a lasso completes. Tick-driven
   // so successive lassos with the same count still log each time.
@@ -128,6 +124,22 @@ export function CommandConsole() {
       return;
     }
 
+    // Legacy node graph (kept for backwards-compat with NodeCloud renderer)
+    addNode(text);
+
+    // Sync peers immediately on the legacy graph node
+    const nodes = useStore.getState().nodes;
+    const newNode = nodes[nodes.length - 1];
+    if (newNode) {
+      NetworkManager.broadcastNodeUpdate(
+        newNode.index,
+        newNode.position[0],
+        newNode.position[1],
+        newNode.position[2],
+        newNode.certainty,
+      );
+    }
+
     // Clear input first for snappy UX, then fire async classification.
     const preview = text.slice(0, 48) + (text.length > 48 ? "…" : "");
     setInput("");
@@ -142,70 +154,22 @@ export function CommandConsole() {
       try {
         const { slot, latencyMs, embedding } = await OnnxWorker.classify(text);
         const color = colorForSlot(slot);
-        const store = useSaccadeStore.getState();
-
-        // If ONNX warmed up: embedding-aware path (reinforcement + promotion).
-        // Otherwise (heuristic fallback): legacy direct inject, no reinforcement.
-        let result: ReturnType<typeof store.reinforceOrInject> | null = null;
-        let legacySlot: number | null = null;
-        if (embedding) {
-          result = store.reinforceOrInject({
+        const vramIdx = useSaccadeStore
+          .getState()
+          .injectLiveIntentVector({
             slot,
             textLength: text.length,
             colorRGB: color,
             embedding,
           });
-        } else {
-          legacySlot = store.injectLiveIntentVector({
-            slot,
-            textLength: text.length,
-            colorRGB: color,
-          });
-        }
 
         setLastLatency(latencyMs);
         const label = SLOT_LABELS[slot - 1] ?? "?";
         const tag = latencyMs > 0 ? `[${label} ${latencyMs.toFixed(0)}ms]` : `[${label} heuristic]`;
-
-        // ── Broadcast & log based on outcome ──
-        const broadcast = (vramSlot: number) => {
-          const s = useSaccadeStore.getState();
-          const frame = s.mockFrames[s.activeFrameIndex];
-          if (!frame) return;
-          const off = vramSlot * STRIDE;
-          NetworkManager.broadcastNodeUpdate(
-            vramSlot,
-            frame[off],
-            frame[off + 1],
-            frame[off + 2],
-            frame[off + 6] / 1.5, // approx certainty from scale (MAX_SCALE=1.5)
-          );
-        };
-
-        if (result) {
-          switch (result.kind) {
-            case "reinforced":
-              broadcast(result.slotIndex);
-              pushLog(
-                `> ${tag} ↺ REINFORCED vram[${result.slotIndex}] cos=${result.similarity.toFixed(3)}${result.promoted ? " — PROMOTED inward" : ""}: "${preview}"`,
-              );
-              break;
-            case "injected":
-              broadcast(result.slotIndex);
-              pushLog(`> ${tag} → slot ${slot} @ vram[${result.slotIndex}]: "${preview}"`);
-              break;
-            case "tier-full":
-              pushLog(`> ${tag} TIER ${slot} FULL — "${preview}" (no vacant ${label} slot)`);
-              break;
-            case "failed":
-              pushLog(`> ${tag} FAILED — no active frame buffer`);
-              break;
-          }
-        } else if (legacySlot !== null) {
-          broadcast(legacySlot);
-          pushLog(`> ${tag} → slot ${slot} @ vram[${legacySlot}]: "${preview}"`);
+        if (vramIdx === null) {
+          pushLog(`> ${tag} FULL — "${preview}" (tier ${slot} cap reached)`);
         } else {
-          pushLog(`> ${tag} TIER ${slot} FULL — "${preview}"`);
+          pushLog(`> ${tag} → slot ${slot} @ vram[${vramIdx}]: "${preview}"`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -295,6 +259,27 @@ export function CommandConsole() {
             {isConnected ? "SYNC" : "LOCAL"}
           </span>
         </span>
+      </div>
+
+      {/* Per-tier occupancy — Task #3 visibility for the foveated caches. */}
+      <div
+        style={{
+          padding: "4px 10px",
+          borderBottom: "1px solid #00ffff20",
+          color: "#00ffff80",
+          fontSize: 10,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 6,
+        }}
+      >
+        <span style={{ color: "#00ffff", opacity: 0.6 }}>{">"} Slots —</span>
+        {SHORT_LABELS.map((label, i) => (
+          <span key={label} style={{ whiteSpace: "nowrap" }}>
+            {label}: {tierCounts[i] ?? 0}/{TIER_CAPS[i]}
+            {i < SHORT_LABELS.length - 1 ? " ·" : ""}
+          </span>
+        ))}
       </div>
 
       {/* Log */}

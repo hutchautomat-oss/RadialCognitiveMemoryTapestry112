@@ -102,22 +102,19 @@ self.onmessage = async (e: MessageEvent) => {
       }
       const latencyMs = performance.now() - t0;
 
-      // Clone the embedding into a fresh ArrayBuffer so we can transfer
-      // ownership to the main thread without losing it inside the worker.
-      const embeddingOut = new Float32Array(v.length);
-      embeddingOut.set(v);
-
-      // Cast through unknown — the worker-scope postMessage takes a transfer
-      // list as its second arg, but DOM lib typings see `self` as Window.
-      (self.postMessage as unknown as (msg: unknown, transfer: Transferable[]) => void)(
+      // Ship the embedding back as a transferable so the main thread can
+      // store it for per-slot cosine reinforcement. v is L2-normalized
+      // already (pipeline call used normalize: true).
+      const embeddingCopy = new Float32Array(v);
+      self.postMessage(
         {
           status: "CLASSIFY_COMPLETE",
           slot: bestIdx + 1, // 1..5
           similarities: sims,
           latencyMs,
-          embedding: embeddingOut,
+          embedding: embeddingCopy,
         },
-        [embeddingOut.buffer],
+        { transfer: [embeddingCopy.buffer] },
       );
       return;
     }

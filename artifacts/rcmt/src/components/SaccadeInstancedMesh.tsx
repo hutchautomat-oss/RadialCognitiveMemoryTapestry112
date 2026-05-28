@@ -28,10 +28,8 @@ import {
   MAX_NODES,
   STRIDE,
   nodesToFrame,
-  tierForSlot,
   TIER_LAMBDA,
-  DEATH_THRESHOLD,
-  PROMOTION_DURATION_MS,
+  PROMOTION_ANIM_MS,
 } from "../store/useSaccadeStore";
 import { NetworkManager } from "../network/NetworkManager";
 
@@ -42,6 +40,7 @@ const hiddenMatrix = new Matrix4().makeScale(0, 0, 0);
 const _dragPlane   = new Plane(new Vector3(0, 1, 0), 0);
 const _hit         = new Vector3();
 
+const DEATH_THRESHOLD = 0.2;
 // How many frames between bounding sphere recomputes (expensive)
 const BOUNDS_REFRESH_INTERVAL = 60;
 // Starburst spawn animation window (ms). Within this window, scale is multiplied
@@ -55,18 +54,6 @@ function easeOutBack(t: number): number {
   const x = t - 1;
   return 1 + EASE_BACK_C3 * x * x * x + EASE_BACK_C1 * x * x;
 }
-
-/** Cubic ease-in-out — symmetric S-curve, t in [0,1] → [0,1]. */
-function easeInOutCubic(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
-
-// CTO mandate: during the 400ms promotion transit, the node pulses to 1.5×
-// (sine peak at t=0.5) and flashes cyan before adopting the destination
-// tier color. Cyan = [0, 1, 1].
-const CYAN_R = 0.0;
-const CYAN_G = 1.0;
-const CYAN_B = 1.0;
 
 export function SaccadeInstancedMesh() {
   const meshRef  = useRef<InstancedMesh>(null!);
@@ -117,14 +104,20 @@ export function SaccadeInstancedMesh() {
     if (!mesh) return;
     frameRef.current++;
 
-    // Pull state non-reactively (mutated in-place each tick).
-    const storeState = useSaccadeStore.getState();
-    const spawnTime = storeState.spawnTime;
-    const selectedSlots = storeState.selectedSlots;
-    const promotionAnims = storeState.promotionAnims;
+    // Pull starburst timestamps + selection non-reactively (mutated in-place).
+    const sState = useSaccadeStore.getState();
+    const spawnTime = sState.spawnTime;
+    const selectedSlots = sState.selectedSlots;
     const hasSelection = selectedSlots.size > 0;
-    const hasPromotions = promotionAnims.size > 0;
     const nowMs = performance.now();
+    // Task #3 per-tier state (read non-reactively for the same reason as
+    // spawnTime — they're typed-array views mutated in place by the store).
+    const slotTierArr = sState.slotTier;
+    const massArr = sState.mass;
+    const injectedAtArr = sState.injectedAt;
+    const animStartArr = sState.animStartTime;
+    const animFromArr = sState.animFromPos;
+    const animToArr = sState.animToPos;
 
     // ── Drag follow ──────────────────────────────────────────────
     if (dragRef.current) {
@@ -139,6 +132,8 @@ export function SaccadeInstancedMesh() {
     }
 
     // ── Resolve frame data ───────────────────────────────────────
+    // BINARY mode: use the stored frame buffer
+    // LIVE mode: convert live nodes on the fly
     let frameData: Float32Array | null = mockFrames[activeFrameIndex] ?? null;
     if (!frameData && liveNodes.length > 0) {
       frameData = nodesToFrame(liveNodes);
@@ -146,128 +141,136 @@ export function SaccadeInstancedMesh() {
     if (!frameData) return;
 
     const newlyPruned: number[] = [];
-    const finishedAnims: number[] = [];
 
     for (let i = 0; i < MAX_NODES; i++) {
       const offset = i * STRIDE;
       let scale = frameData[offset + 6];
 
-      // ── Per-tier exponential decay (LIVE MODE ONLY). λ varies per tier
-      //    (Facts persist; Dreams evaporate). Replay frames are immutable
-      //    snapshots — mutating them during scrub would rewrite history and
-      //    break timeline replay semantics, so we gate on !isFileLoaded.
-      //    Skip decay for slots in active promotion (animation owns state).
-      const inPromotion = hasPromotions && promotionAnims.has(i);
-      if (!isFileLoaded && scale > 0 && !inPromotion) {
-        const lambda = TIER_LAMBDA[tierForSlot(i) - 1];
-        scale *= Math.exp(-lambda * _delta);
+      // Exponential decay: apply only in binary file mode
+      if (isFileLoaded && scale > 0 && nodeTimestamps.current[i] !== -1.0) {
         if (scale < DEATH_THRESHOLD) {
-          scale = 0;
+          scale = 0.0;
+          nodeTimestamps.current[i] = -1.0;
           newlyPruned.push(i);
         }
-        frameData[offset + 6] = scale;
       }
 
-      if (scale > 0 || inPromotion) {
-        // Defaults: read from frame buffer (the resting state).
-        let px = frameData[offset + 0];
-        let py = frameData[offset + 1];
-        let pz = frameData[offset + 2];
-        let cr = frameData[offset + 3];
-        let cg = frameData[offset + 4];
-        let cb = frameData[offset + 5];
-        let renderScale = scale;
-
-        // ── Promotion animation override (CTO spec: 1.5× pulse + cyan flash)
-        if (inPromotion) {
-          const anim = promotionAnims.get(i)!;
-          const rawT = (nowMs - anim.startMs) / PROMOTION_DURATION_MS;
-          if (rawT >= 1) {
-            // Settle into destination state, then drop the animation.
-            px = anim.toPos[0]; py = anim.toPos[1]; pz = anim.toPos[2];
-            cr = anim.toColor[0]; cg = anim.toColor[1]; cb = anim.toColor[2];
-            renderScale = anim.baseScale;
-            // Write the settled state back into the frame so subsequent ticks
-            // (without the anim) render correctly.
-            frameData[offset + 0] = px; frameData[offset + 1] = py; frameData[offset + 2] = pz;
-            frameData[offset + 3] = cr; frameData[offset + 4] = cg; frameData[offset + 5] = cb;
-            frameData[offset + 6] = renderScale;
-            spawnTime[i] = nowMs; // give the new home a starburst pop
-            finishedAnims.push(i);
-          } else {
-            const e = easeInOutCubic(rawT);
-            // Position lerp: from → to via cubic-ease.
-            px = anim.fromPos[0] + (anim.toPos[0] - anim.fromPos[0]) * e;
-            py = anim.fromPos[1] + (anim.toPos[1] - anim.fromPos[1]) * e;
-            pz = anim.fromPos[2] + (anim.toPos[2] - anim.fromPos[2]) * e;
-            // Color: from → cyan (first half) → to (second half).
-            if (rawT < 0.5) {
-              const k = rawT * 2;
-              cr = anim.fromColor[0] + (CYAN_R - anim.fromColor[0]) * k;
-              cg = anim.fromColor[1] + (CYAN_G - anim.fromColor[1]) * k;
-              cb = anim.fromColor[2] + (CYAN_B - anim.fromColor[2]) * k;
-            } else {
-              const k = (rawT - 0.5) * 2;
-              cr = CYAN_R + (anim.toColor[0] - CYAN_R) * k;
-              cg = CYAN_G + (anim.toColor[1] - CYAN_G) * k;
-              cb = CYAN_B + (anim.toColor[2] - CYAN_B) * k;
-            }
-            // 1.5× pulse via half-sine: peaks at t=0.5.
-            const pulseMul = 1 + 0.5 * Math.sin(rawT * Math.PI);
-            renderScale = anim.baseScale * pulseMul;
-          }
+      if (scale > 0) {
+        // Mark slot as occupied
+        if (nodeTimestamps.current[i] === -1.0) {
+          nodeTimestamps.current[i] = performance.now();
         }
 
-        // Starburst pop (only applies when not in promotion).
+        // Starburst pop: within SPAWN_ANIM_MS of injection, multiply scale by
+        // easeOutBack curve so the node bursts in then settles. spawnTime[i]==0
+        // means "no animation" (pre-existing or legacy-added node) → mul=1.
         let popMul = 1;
-        if (!inPromotion) {
-          const ts = spawnTime[i];
-          if (ts > 0) {
-            const t = (nowMs - ts) / SPAWN_ANIM_MS;
-            if (t >= 0 && t < 1) popMul = easeOutBack(t);
-          }
+        const ts = spawnTime[i];
+        if (ts > 0) {
+          const t = (nowMs - ts) / SPAWN_ANIM_MS;
+          if (t >= 0 && t < 1) popMul = easeOutBack(t);
         }
 
         // Lasso highlight: bump scale 1.6× and tint cyan for captured slots.
         const isSelected = hasSelection && selectedSlots.has(i);
         const selMul = isSelected ? 1.6 : 1;
 
+        // ── Task #3: promotion orbital shift ─────────────────────
+        // While animStartTime[i] > 0 and t<1 we lerp position from animFromPos
+        // toward animToPos, pulse scale up to 1.5× at midpoint, and flash the
+        // color toward cyan via sin(πt). On arrival we snap and clear.
+        let px = frameData[offset];
+        let py = frameData[offset + 1];
+        let pz = frameData[offset + 2];
+        let promoMul = 1;
+        let promoFlash = 0; // 0..1 weighting toward cyan
+        const animStart = animStartArr[i];
+        if (animStart > 0) {
+          const rawT = (nowMs - animStart) / PROMOTION_ANIM_MS;
+          if (rawT >= 1) {
+            // Snap to destination + clear animation.
+            const tx = animToArr[i * 3 + 0];
+            const ty = animToArr[i * 3 + 1];
+            const tz = animToArr[i * 3 + 2];
+            frameData[offset + 0] = tx;
+            frameData[offset + 1] = ty;
+            frameData[offset + 2] = tz;
+            px = tx;
+            py = ty;
+            pz = tz;
+            animStartArr[i] = 0;
+          } else if (rawT > 0) {
+            // Cubic ease-in-out.
+            const t = rawT;
+            const ease =
+              t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+            const fx = animFromArr[i * 3 + 0];
+            const fy = animFromArr[i * 3 + 1];
+            const fz = animFromArr[i * 3 + 2];
+            const tx = animToArr[i * 3 + 0];
+            const ty = animToArr[i * 3 + 1];
+            const tz = animToArr[i * 3 + 2];
+            px = fx + (tx - fx) * ease;
+            py = fy + (ty - fy) * ease;
+            pz = fz + (tz - fz) * ease;
+            const pulse = Math.sin(Math.PI * t);
+            promoMul = 1 + 0.5 * pulse;
+            promoFlash = pulse;
+          }
+        }
+
+        // ── Task #3: health-driven visual decay ─────────────────
+        // Dim RGB by Health = exp(-λ_tier · Δt_seconds). Only applies to
+        // tier-tracked slots (mass[i] > 0 ⇒ this slot was injected by the
+        // tier system). Legacy snapshot slots (mass == 0) render at full
+        // intensity so they don't visually fade.
+        let healthDim = 1;
+        const slotMass = massArr[i];
+        if (slotMass > 0) {
+          const tier = slotTierArr[i];
+          if (tier >= 1 && tier <= TIER_LAMBDA.length) {
+            const lambda = TIER_LAMBDA[tier - 1];
+            const dt = (nowMs - injectedAtArr[i]) / 1000;
+            const h = Math.exp(-lambda * dt);
+            // Floor at 0.15 so a dying node is still visible until the next
+            // decay sweep evaporates it — this is a render-side hint, not the
+            // authoritative death gate.
+            healthDim = Math.max(0.15, Math.min(1, h));
+          }
+        }
+
         tempObject.position.set(px, py, pz);
-        tempObject.scale.setScalar(renderScale * 0.15 * popMul * selMul);
+        tempObject.scale.setScalar(scale * 0.15 * popMul * promoMul * selMul);
         tempObject.updateMatrix();
         mesh.setMatrixAt(i, tempObject.matrix);
 
         if (isSelected) {
           tempColor.setRGB(0, 1, 1);
         } else {
-          tempColor.setRGB(cr, cg, cb);
+          let r = frameData[offset + 3] * healthDim;
+          let g = frameData[offset + 4] * healthDim;
+          let b = frameData[offset + 5] * healthDim;
+          if (promoFlash > 0) {
+            // Lerp toward cyan (0,1,1) by promoFlash.
+            r = r + (0 - r) * promoFlash;
+            g = g + (1 - g) * promoFlash;
+            b = b + (1 - b) * promoFlash;
+          }
+          tempColor.setRGB(r, g, b);
         }
         mesh.setColorAt(i, tempColor);
-
-        // Track timestamp for legacy bookkeeping (kept for parity with the
-        // pre-Task-3 ref; future cleanup can remove).
-        if (nodeTimestamps.current[i] === -1.0) {
-          nodeTimestamps.current[i] = nowMs;
-        }
       } else {
         mesh.setMatrixAt(i, hiddenMatrix);
-        if (nodeTimestamps.current[i] !== -1.0) nodeTimestamps.current[i] = -1.0;
       }
     }
 
-    // Drop finished promotion animations after the loop (avoid mutating
-    // the Map while iterating it).
-    if (finishedAnims.length > 0) {
-      for (const slot of finishedAnims) promotionAnims.delete(slot);
-      storeState.markBVHDirty();
-    }
-
-    // Bridge dead slots to the FIFO reclaimer (per-tier bucketing happens inside).
+    // Bridge dead slots to the FIFO reclaimer
     if (newlyPruned.length > 0) setVacant(newlyPruned);
 
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 
+    // Throttled bounding sphere refresh (prevents ghost-node raycast hits)
     if (frameRef.current % BOUNDS_REFRESH_INTERVAL === 0) {
       mesh.computeBoundingSphere();
     }
