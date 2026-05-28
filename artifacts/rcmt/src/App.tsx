@@ -3,7 +3,18 @@ import { Canvas } from "@react-three/fiber";
 import { Scene } from "./components/Scene";
 import { CommandConsole } from "./components/CommandConsole";
 import { Timeline } from "./components/Timeline";
+import { ThoughtTicker } from "./components/ThoughtTicker";
+import {
+  SyncCore,
+  Ontology,
+  EventStream,
+  Invariants,
+  CameraReadout,
+} from "./components/hud";
 import { NetworkManager } from "./network/NetworkManager";
+import { OnnxWorker } from "./workers/OnnxWorkerManager";
+import { pushHudEvent } from "./store/useHudStore";
+import { COLOR, FONT } from "./components/hud/tokens";
 
 // ── WebGL Error Boundary ─────────────────────────────────────
 class WebGLErrorBoundary extends Component<
@@ -28,20 +39,18 @@ class WebGLErrorBoundary extends Component<
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            color: "#00ffff",
-            fontFamily: "'Courier New', monospace",
+            color: COLOR.text,
+            fontFamily: FONT,
             fontSize: 13,
             gap: 12,
-            background: "#050505",
+            background: COLOR.bgSolid,
           }}
         >
-          <div style={{ color: "#ff4444", textShadow: "0 0 8px #ff4444" }}>
-            ⚠ WebGL context unavailable
-          </div>
-          <div style={{ color: "#00ffff80", fontSize: 11, maxWidth: 400, textAlign: "center" }}>
+          <div style={{ color: COLOR.fail }}>WEBGL CONTEXT UNAVAILABLE</div>
+          <div style={{ color: COLOR.textDim, fontSize: 11, maxWidth: 400, textAlign: "center" }}>
             {this.state.error}
           </div>
-          <div style={{ color: "#00ff4180", fontSize: 10 }}>
+          <div style={{ color: COLOR.textMuted, fontSize: 10 }}>
             Ensure hardware acceleration is enabled in your browser settings.
           </div>
         </div>
@@ -60,14 +69,14 @@ function LoadingOverlay() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "#080808",
-        color: "#00ffff",
-        fontFamily: "'Courier New', monospace",
-        fontSize: 14,
-        textShadow: "0 0 12px #00ffff",
+        background: COLOR.bgSolid,
+        color: COLOR.accent,
+        fontFamily: FONT,
+        fontSize: 12,
+        letterSpacing: 1,
       }}
     >
-      ⬡ INITIALIZING RCMT LATTICE…
+      INITIALIZING RCMT LATTICE…
     </div>
   );
 }
@@ -75,7 +84,30 @@ function LoadingOverlay() {
 export default function App() {
   useEffect(() => {
     NetworkManager.connect();
-    return () => NetworkManager.disconnect();
+    // Boot the ONNX classifier worker so injections actually run through the
+    // 25 MB MiniLM model instead of silently falling back to the keyword
+    // heuristic. Status transitions are surfaced by the SyncCore ENGINE pill
+    // (single owner of onStatusChange — don't add another subscriber here or
+    // the last writer wins). We poll currentStatus once on the next tick so
+    // a transition to ERROR also lands in the event ring as a hard signal.
+    OnnxWorker.initialize();
+    const id = setInterval(() => {
+      const s = OnnxWorker.currentStatus;
+      if (s === "ERROR") {
+        pushHudEvent({
+          type: "ERROR",
+          detail: "ONNX classifier failed to load — keyword fallback active",
+        });
+        clearInterval(id);
+      } else if (s === "READY" || s === "CLASSIFY_COMPLETE") {
+        pushHudEvent({ type: "INFO", detail: "ONNX classifier READY" });
+        clearInterval(id);
+      }
+    }, 1000);
+    return () => {
+      clearInterval(id);
+      NetworkManager.disconnect();
+    };
   }, []);
 
   return (
@@ -83,9 +115,10 @@ export default function App() {
       style={{
         width: "100vw",
         height: "100vh",
-        background: "#050505",
+        background: COLOR.bgSolid,
         position: "relative",
         overflow: "hidden",
+        fontFamily: FONT,
       }}
     >
       {/* 3D Canvas */}
@@ -95,7 +128,7 @@ export default function App() {
           camera={{ position: [0, 25, 95], fov: 60, near: 0.1, far: 500 }}
           style={{ position: "absolute", inset: 0 }}
           onCreated={({ gl }) => {
-            gl.setClearColor("#050505", 1);
+            gl.setClearColor(COLOR.bgSolid, 1);
           }}
         >
           <Suspense fallback={null}>
@@ -104,33 +137,37 @@ export default function App() {
         </Canvas>
       </WebGLErrorBoundary>
 
-      {/* Loading fallback shown before Canvas mounts */}
       <Suspense fallback={<LoadingOverlay />} />
 
-      {/* HUD overlays — always visible */}
+      {/* Aerospace telemetry HUD */}
+      <Invariants />
+      <SyncCore />
+      <Ontology />
+      <CameraReadout />
+      <EventStream />
       <CommandConsole />
       <Timeline />
+
+      {/* Invisible: drives autonomous thought loop. */}
+      <ThoughtTicker />
 
       {/* Corner branding */}
       <div
         style={{
           position: "fixed",
-          bottom: 60,
-          right: 16,
-          fontFamily: "'Courier New', monospace",
-          fontSize: 10,
-          color: "#00ffff25",
-          lineHeight: 1.6,
-          textAlign: "right",
+          top: 14,
+          left: "50%",
+          transform: "translate(-50%, 56px)",
+          fontFamily: FONT,
+          fontSize: 9,
+          color: COLOR.textMuted,
+          letterSpacing: 1.5,
           pointerEvents: "none",
           userSelect: "none",
+          textAlign: "center",
         }}
       >
-        <div style={{ color: "#00ffff60", fontSize: 12, textShadow: "0 0 8px #00ffff" }}>
-          RCMT PLATINUM v5.0
-        </div>
-        <div>Radial Cognitive Memory Tapestry</div>
-        <div>Unified Fibonacci Sphere · LWW Sync · BVH Raycast</div>
+        RCMT PLATINUM v5.1 · RADIAL COGNITIVE MEMORY TAPESTRY
       </div>
     </div>
   );

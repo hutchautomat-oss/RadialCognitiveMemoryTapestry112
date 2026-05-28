@@ -16,6 +16,7 @@
  */
 
 import { useStore } from "../store/useStore";
+import { useHudStore } from "../store/useHudStore";
 
 const STRIDE_BYTES = 28;
 const RECONNECT_DELAY_MS = 3000;
@@ -148,6 +149,7 @@ class NetworkManagerClass {
 
       updateNodePosition(nodeIndex, [x, y, z]);
     }
+    if (count > 0) useHudStore.getState().incPacketsIn(count);
   }
 }
 

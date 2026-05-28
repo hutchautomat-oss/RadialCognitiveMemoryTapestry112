@@ -65,32 +65,20 @@ const DEMO_LABELS = [
   "Vision tokens: 100 ≈ 1000 text tokens",
 ];
 
-// Stride-sample demo nodes across ALL 8000 slots (not just the Fact tier)
-// so the full unified sphere — including outer Theory/Dream shells — is
-// visible on first load. Otherwise a few hundred Fact-tier dots cluster
-// at the foveated core and the viewport looks like an empty starfield.
+// Boot seed is empty (Task #11): the lattice now starts dark and is
+// populated organically by the ThoughtTicker, which injects 7 Fact-tier
+// axioms via the real ontology path and then drips phrases from the corpus
+// on a jittered 2-4s cadence. The ghost scaffold makes the shape visible
+// before any node lands.
 function buildDemoNodes(): RCMTNode[] {
-  const nodes: RCMTNode[] = [];
-  const stride = 6; // 8000/6 ≈ 1333 demo nodes spanning every tier shell
-  let n = 0;
-  for (let slot = 0; slot < MAX_NODES; slot += stride) {
-    const certainty = certaintyFromIndex(slot);
-    const pos = fibonacciPosition(slot, MAX_NODES);
-    nodes.push({
-      id: `demo-${slot}`,
-      index: slot,
-      label:
-        n < DEMO_LABELS.length ? DEMO_LABELS[n] : `Memory fragment #${slot}`,
-      certainty,
-      position: [...pos] as [number, number, number],
-      basePosition: [...pos] as [number, number, number],
-      timestamp: Date.now() - (MAX_NODES - slot) * 5,
-      size: 0.35 + certainty * 0.55,
-    });
-    n++;
-  }
-  return nodes;
+  return [];
 }
+// Reference no-op to keep the helpers exported by the module symbol-stable
+// even though boot no longer uses them. The classifier path still relies on
+// fibonacciPosition / certaintyFromIndex via the saccade store mirror.
+void DEMO_LABELS;
+void certaintyFromIndex;
+void fibonacciPosition;
 
 interface RCMTStore {
   nodes: RCMTNode[];

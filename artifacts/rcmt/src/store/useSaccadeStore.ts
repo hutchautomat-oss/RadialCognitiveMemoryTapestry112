@@ -230,6 +230,16 @@ function l2Normalize(v: Float32Array): Float32Array {
   return v;
 }
 
+/** Result of a single injectLiveIntentVector call. */
+export interface InjectOutcome {
+  /** Absolute VRAM slot index that was written to. */
+  index: number;
+  /** What kind of mutation occurred. */
+  kind: "spawn" | "reinforce" | "evict" | "promote";
+  /** Tier (1..5) the slot belongs to AFTER the mutation. */
+  tier: number;
+}
+
 interface SaccadeStore {
   mockFrames: Float32Array[];
   activeFrameIndex: number;
@@ -279,7 +289,7 @@ interface SaccadeStore {
    * lowest-Health slot in that tier is evicted (NOT the globally oldest —
    * Dream pressure cannot evict Facts).
    *
-   * Returns the slot index used (existing or newly-allocated), or null if
+   * Returns the slot index used and the outcome category, or null if
    * something pathological happened (no frame, partition exhausted).
    */
   injectLiveIntentVector: (opts: {
@@ -291,7 +301,7 @@ interface SaccadeStore {
       | number;
     /** Optional L2-normalized 384-d embedding. Without it, reinforcement is skipped. */
     embedding?: Float32Array | null;
-  }) => number | null;
+  }) => InjectOutcome | null;
 
   /** Background decay sweep — evaporates slots whose Health has fallen below threshold. */
   decaySweep: () => void;
@@ -536,19 +546,24 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
         reinforcementCount[i] >= REINFORCE_PROMOTE_COUNT
       ) {
         const promoted = promoteSlot(i, get, set);
-        return promoted ?? i;
+        if (promoted !== null) {
+          return { index: promoted, kind: "promote", tier: slotTier[promoted] };
+        }
+        return { index: i, kind: "reinforce", tier: reinforcedTier };
       }
       set({ bvhDirty: true });
-      return i;
+      return { index: i, kind: "reinforce", tier: reinforcedTier };
     }
 
     // ── Step 2: allocate a slot in the target tier ───────────────
     let targetIndex: number;
+    let outcomeKind: "spawn" | "evict" = "spawn";
     let nextVacantForTier = vacantSlotsByTier[tierIdx];
     if (nextVacantForTier.length > 0) {
       targetIndex = nextVacantForTier[0];
       nextVacantForTier = nextVacantForTier.slice(1);
     } else {
+      outcomeKind = "evict";
       // Tier full → evict lowest-Health slot in this tier (NOT globally).
       const start = TIER_STARTS[tierIdx];
       const end = start + TIER_CAPS[tierIdx];
@@ -636,7 +651,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       tierCounts: nextCounts,
       bvhDirty: true,
     });
-    return targetIndex;
+    return { index: targetIndex, kind: outcomeKind, tier: tier1Based };
   },
 
   decaySweep: () => {
