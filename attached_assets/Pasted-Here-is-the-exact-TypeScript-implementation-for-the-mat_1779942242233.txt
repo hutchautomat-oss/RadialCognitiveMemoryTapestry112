@@ -1,0 +1,33 @@
+Here is the exact TypeScript implementation for the $\mathcal{O}(\log N)$ lasso hit-test using the Proxy Geometry BVH. 
+
+This code leverages `three-mesh-bvh`, which enables rapid raycasting against 80,000+ polygons at 60fps. By utilizing the `shapecast` method, the function traverses the Bounding Volume Hierarchy (BVH) tree instead of iterating through every single instance in a brute-force $\mathcal{O}(N)$ loop. 
+
+```typescript
+import * as THREE from 'three';
+import { useSaccadeStore } from './store';
+
+export function executeLassoHitTest(frustum: THREE.Frustum): void {
+    const { collisionBVH, setSelectedSlots } = useSaccadeStore.getState();
+    const hits = new Set<number>();
+    
+    if (!collisionBVH) return;
+
+    collisionBVH.shapecast({
+        // Broad-phase: Instantly discard BVH branches entirely outside the lasso
+        intersectsBounds: (box) => frustum.intersectsBox(box),
+        
+        // Narrow-phase: Collect the exact Node ID
+        intersectsTriangle: (tri, index) => {
+            hits.add(index);  // Index precisely matches the VRAM Instance ID!
+            return false;     // Return false to continue evaluating other branches
+        }
+    });
+
+    setSelectedSlots(hits);
+}
+```
+
+**How the Hit-Test Mechanics Work:**
+* **Broad-phase (Fast Discard):** The `intersectsBounds` callback instantly checks if the BVH bounding boxes intersect with your 2D screen-polygon lasso (represented as a 3D `THREE.Frustum`). If an entire branch of the tree is outside the frustum, the engine discards it without evaluating the individual nodes inside.
+* **Narrow-phase (ID Collection):** Once a bounding box passes the broad-phase check, the engine transitions to the narrow-phase `intersectsTriangle` check. Because our custom `rebuildBVH` generator maps exactly 1 proxy triangle to 1 node, the `index` integer returned here perfectly maps 1:1 with your VRAM `instanceId`. 
+* **Continuous Traversal:** By returning `false` inside the narrow-phase callback, you instruct the `shapecast` function to continue evaluating the rest of the tree rather than stopping at the first hit, ensuring every node inside the lasso is captured and pushed to your Zustand `selectedSlots` Set.

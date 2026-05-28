@@ -88,9 +88,10 @@ export function LassoSelection() {
         return;
       }
       const hits = executeLassoHitTest(bvh, camera, ndcPoly);
+      // setSelectedSlots also pulses lassoEventTick so CommandConsole can
+      // emit "> LASSO captured N slots" without us reaching into its log
+      // state directly.
       useSaccadeStore.getState().setSelectedSlots(hits);
-
-      console.log(`[Lasso] captured ${hits.size} slot(s)`);
       pointsRef.current = [];
     };
 

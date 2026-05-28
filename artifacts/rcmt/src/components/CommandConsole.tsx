@@ -27,10 +27,23 @@ export function CommandConsole() {
   // VRAM-aware selection (lasso writes here via the BVH hit-test).
   const selectedSlots = useSaccadeStore((s) => s.selectedSlots);
   const blastSelectedSlots = useSaccadeStore((s) => s.blastSelectedSlots);
+  // Pulses every time a lasso completes — drives the console log line below.
+  const lassoEventTick = useSaccadeStore((s) => s.lassoEventTick);
+  const lassoEventCount = useSaccadeStore((s) => s.lassoEventCount);
   // Live node count = MAX_NODES − vacant. Reflects the 8k VRAM buffer, not
   // the retiring legacy graph.
   const vacantCount = useSaccadeStore((s) => s.vacantSlots.length);
   const nodeCount = 8000 - vacantCount;
+
+  // Emit "> LASSO captured N slots" whenever a lasso completes. Tick-driven
+  // so successive lassos with the same count still log each time.
+  useEffect(() => {
+    if (lassoEventTick === 0) return;
+    setLog((prev) => [
+      ...prev.slice(-(MAX_LOG - 1)),
+      `> LASSO captured ${lassoEventCount} slots`,
+    ]);
+  }, [lassoEventTick, lassoEventCount]);
 
   useEffect(() => {
     const id = setInterval(() => {

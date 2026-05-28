@@ -13,7 +13,7 @@
  *     run point-in-polygon. Hits go into a closure-scoped Set.
  */
 
-import { Box3, Camera, Vector3 } from "three";
+import { Box3, Camera, Raycaster, Vector3 } from "three";
 import type { MeshBVH } from "three-mesh-bvh";
 import { NOT_INTERSECTED, INTERSECTED } from "three-mesh-bvh";
 
@@ -115,4 +115,31 @@ export function executeLassoHitTest(
   });
 
   return hits;
+}
+
+// ──────────────────────────────────────────────────────────────
+// BVH ray-picker
+//
+// O(log N) point-pick against the same proxy geometry. Available for any
+// future codepath that wants ray-based picking (e.g. routing drag through
+// the spatial index instead of three's built-in InstancedMesh.raycast).
+//
+// Drag currently still uses R3F's pointerEvent.instanceId — at N=8000 the
+// brute-force InstancedMesh raycast is fast enough for single-click input.
+// This utility is kept ready so the migration is a one-line swap when the
+// drag path needs accelerating (e.g. hover highlights at 60 fps).
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Cast a ray against the proxy BVH and return the closest slot index, or
+ * null if the ray misses every live slot. Proxy geometry lives in world
+ * space, so the raycaster's world-space ray needs no inverse transform.
+ *
+ * @param bvh        The current MeshBVH (use store.getCollisionBVH()).
+ * @param raycaster  A Three.js Raycaster already configured with origin/dir
+ *                   (e.g. from `useThree().raycaster` after pointer move).
+ */
+export function bvhRayPick(bvh: MeshBVH, raycaster: Raycaster): number | null {
+  const hit = bvh.raycastFirst(raycaster.ray);
+  return hit ? hit.faceIndex ?? null : null;
 }

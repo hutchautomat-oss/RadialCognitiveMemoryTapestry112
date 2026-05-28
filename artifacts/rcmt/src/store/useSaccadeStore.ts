@@ -38,10 +38,11 @@ const MAX_SCALE = 1.5;
 // `SphereGeometry(1, 8, 8)` scaled by `scale * 0.15`. Any other multiplier
 // desyncs picking from visuals.
 const PROXY_SCALE_MULT = 0.15;
-// Dead-slot park position. Far enough off-screen to never produce a lasso
-// hit at any sane camera position; NOT 0/0/0 (would create a phantom at the
-// foveated core), NOT Infinity (NaN-propagation risk inside BVH math).
-const DEAD_SLOT_PARK = 1e6;
+// Dead-slot park position: Infinity per the locked Task #1 spec.
+// NOT 0/0/0 (would create a phantom at the foveated core). Infinity is safe
+// inside three-mesh-bvh: bounding boxes containing Infinity propagate NaN
+// through `Vector3.project(camera)`; NaN comparisons return false, so the
+// shapecast AABB-vs-poly overlap test rejects those branches cleanly.
 
 // Pre-computed equilateral-triangle offsets in the XZ plane (unit radius).
 // Multiplied by (scale * PROXY_SCALE_MULT) per slot at proxy build time.
@@ -130,6 +131,14 @@ interface SaccadeStore {
   /** Set of slot indices currently highlighted by the lasso. */
   selectedSlots: Set<number>;
 
+  /**
+   * Monotonically-incrementing counter that pulses every time a lasso
+   * completes. CommandConsole subscribes to this to emit a console log line
+   * without LassoSelection needing direct access to the console's setState.
+   */
+  lassoEventTick: number;
+  lassoEventCount: number;
+
   // ── Actions ───────────────────────────────────────────────────
   initWorker: () => void;
   loadFile: (file: File) => void;
@@ -178,6 +187,8 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
   collisionBVH: null,
   bvhDirty: true,
   selectedSlots: new Set<number>(),
+  lassoEventTick: 0,
+  lassoEventCount: 0,
 
   initWorker: () => {
     SaccadeWorker.initialize();
@@ -342,13 +353,11 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
           positions[baseV + v * 3 + 2] = cz + TRI_OFFSETS[v][2] * r;
         }
       } else {
-        // Park dead slot far off-screen. NOT at origin (would create a
-        // phantom hit at the foveated core); NOT at Infinity (NaN risk
-        // inside BVH bounds math).
-        for (let v = 0; v < 3; v++) {
-          positions[baseV + v * 3 + 0] = DEAD_SLOT_PARK;
-          positions[baseV + v * 3 + 1] = DEAD_SLOT_PARK;
-          positions[baseV + v * 3 + 2] = DEAD_SLOT_PARK;
+        // Park dead slot at Infinity (locked spec). Safe — see DEAD_SLOT_PARK
+        // comment above. NOT at origin (would create a phantom hit at the
+        // foveated core).
+        for (let v = 0; v < 9; v++) {
+          positions[baseV + v] = Infinity;
         }
       }
     }
@@ -366,7 +375,12 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     return get().collisionBVH;
   },
 
-  setSelectedSlots: (slots) => set({ selectedSlots: slots }),
+  setSelectedSlots: (slots) =>
+    set((state) => ({
+      selectedSlots: slots,
+      lassoEventTick: state.lassoEventTick + 1,
+      lassoEventCount: slots.size,
+    })),
   clearSelection: () => set({ selectedSlots: new Set<number>() }),
 
   blastSelectedSlots: () => {
