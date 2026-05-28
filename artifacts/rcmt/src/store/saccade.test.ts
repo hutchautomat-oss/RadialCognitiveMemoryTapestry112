@@ -138,6 +138,47 @@ describe("decay sweep is gated to live mode", () => {
   });
 });
 
+describe("promotion returns the destination slot index, not the source", () => {
+  beforeEach(resetStore);
+
+  it("after enough reinforcements on a Dream slot, the returned index is the new (inner-tier) slot", () => {
+    // Regression for `.agents/memory/slot-move-return-values.md`. Broadcasting
+    // the source index after a move would tell every peer to zero the wrong
+    // slot — peers diverge silently. Lock the destination-return semantics.
+    const emb = new Float32Array(384);
+    emb[0] = 1;
+    const first = useSaccadeStore.getState().injectLiveIntentVector({
+      slot: 5,
+      textLength: 8,
+      colorRGB: [0.5, 0, 1],
+      embedding: emb,
+    });
+    expect(first?.kind).toBe("spawn");
+    expect(first?.tier).toBe(5);
+    const sourceIdx = first!.index;
+
+    // Reinforce repeatedly. Promotion fires once reinforcementCount crosses
+    // the 3-strike threshold on a tier 4 or 5 slot.
+    let lastOutcome = first;
+    for (let i = 0; i < 5; i++) {
+      lastOutcome = useSaccadeStore.getState().injectLiveIntentVector({
+        slot: 5,
+        textLength: 8,
+        colorRGB: [0.5, 0, 1],
+        embedding: emb,
+      });
+      if (lastOutcome?.kind === "promote") break;
+    }
+    expect(lastOutcome?.kind).toBe("promote");
+    // Destination must be a different absolute slot AND belong to an inner
+    // tier (4 = Theory) — never the original Dream source slot.
+    expect(lastOutcome!.index).not.toBe(sourceIdx);
+    expect(lastOutcome!.tier).toBe(4);
+    expect(lastOutcome!.index).toBeGreaterThanOrEqual(TIER_STARTS[3]);
+    expect(lastOutcome!.index).toBeLessThan(TIER_STARTS[3] + TIER_CAPS[3]);
+  });
+});
+
 describe("reinforcement does not consume a new slot", () => {
   beforeEach(resetStore);
 
