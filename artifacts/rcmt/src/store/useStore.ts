@@ -19,24 +19,26 @@ export interface Snapshot {
 }
 
 const MAX_NODES = 8000;
-const MAX_RADIUS = 45;
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
-
-// Deterministic Y-spread using a hash of the index (no Math.random)
-function hashFloat(i: number): number {
-  const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
-  return x - Math.floor(x); // 0..1
-}
+// Unified 3D Fibonacci sphere — must mirror slotRestPosition in
+// useSaccadeStore.ts. Kept duplicated here (not imported) to avoid a
+// runtime cycle between the legacy graph store and the VRAM store.
+// If you change the formula in one place, change it here too.
+const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
+const NODE_DENSITY_BUBBLE = 0.6;
 
 export function fibonacciPosition(
   index: number,
   _total: number,
 ): [number, number, number] {
-  const t = index / MAX_NODES;
-  const r = Math.sqrt(t) * MAX_RADIUS;
-  const angle = index * GOLDEN_ANGLE;
-  const ySpread = (hashFloat(index) - 0.5) * 4 * t; // denser at center
-  return [r * Math.cos(angle), ySpread, r * Math.sin(angle)];
+  const phi = Math.acos(1 - (2 * (index + 0.5)) / Math.max(MAX_NODES, 1));
+  const theta = index * GOLDEN_ANGLE;
+  const sinPhi = Math.sin(phi);
+  const radius = Math.sqrt(index) * NODE_DENSITY_BUBBLE;
+  return [
+    sinPhi * Math.cos(theta) * radius,
+    sinPhi * Math.sin(theta) * radius,
+    Math.cos(phi) * radius,
+  ];
 }
 
 export function certaintyFromIndex(index: number): number {
