@@ -25,9 +25,11 @@ A sovereign, append-only, peer-merged cognitive memory engine. Stores meaning as
 
 ## Product
 
-The user types a phrase (or scrubs a binary file, or receives a peer broadcast). A local ONNX classifier assigns it to one of five ontology tiers — **Fact / Scenario / Metric / Theory / Dream**. The injection lands in an 8,000-slot VRAM-backed lattice as one instanced sphere in a foveated Fibonacci shell: facts cluster near the core, dreams disperse to the rim. Spawning is a 250 ms starburst animation. Memory pressure recycles dead slots through a FIFO queue.
+RCMT is a personal cognitive substrate. The user types a phrase (or scrubs a binary file, or receives a peer broadcast). A local ONNX classifier assigns it to one of five ontology tiers — **Fact / Scenario / Metric / Theory / Dream**. The injection lands in an 8,000-slot VRAM-backed lattice as one instanced sphere in a foveated Fibonacci shell: facts cluster near the core, dreams disperse to the rim. Spawning is a 250 ms starburst animation. Memory pressure recycles dead slots through a FIFO queue.
 
 Every mutation broadcasts over WebSocket as a 28-byte binary packet to all peers, where a Last-Writer-Wins timestamp arbitrates conflicts. A scrubbable timeline replays history from any binary frame buffer.
+
+Because each node is just a 28-byte position + tier + timestamp record rather than a 1500-dim float vector, the in-memory footprint is roughly two orders of magnitude denser than an equivalent vector store (~224 KB for the full 8k cognitive ground state). The lattice is foveated: early slots cluster tightly at the center (high-attention core), later slots spiral outward on a spherical Fibonacci shell (sparse periphery). Tiers are visually separated along Z so the five ontologies are legible at a glance. Memory is append-only with FIFO reclamation when the 8k cap is hit, and peer instances merge state via the LWW binary protocol — no central authority, no embeddings ever leave the device.
 
 This is meant to behave like a brain: dense, append-only, peer-mergeable, picked up mid-thought by any agent that loads the binary.
 
@@ -50,8 +52,9 @@ These are the non-obvious choices that a reader couldn't infer from the code:
 
 - **28-byte CRVM stride** (Cognitive Realtime VRAM Mutation). `[nodeIndex u16][intentId u16][x f32][y f32][z f32][scale f32][lwwTimestamp f64]`. peerId is *not* in the packet — the server assigns it via a JSON `HELLO` text frame on connect and physically prevents self-echoes by excluding the sender from each broadcast, so the redundant client-side peerId check was deleted.
 - **`intentId` at bytes 2-3 is reserved**, not yet consumed. Today drag broadcasts write 0. The ONNX classifier produces a slot but the injection-side broadcast path doesn't wire it through yet (follow-up).
-- **Foveated spherical Fibonacci lattice.** A node's position is a deterministic function of `(slotTier, indexWithinTier)`. Each tier has its own radial shell — slot 1 (Fact) at radius ~0.6 of the bubble, slot 5 (Dream) at radius ~53.7. Angular position within a tier follows the golden angle (137.508°) so points spread evenly without clustering. Replaces an earlier flat-disk spiral that had a "Knot Anomaly" at the center.
-- **8,000 nodes hard cap**, single InstancedMesh, single draw call. The whole tapestry fits in 224 KB of typed-array memory at 28 bytes per node.
+- **Foveated spherical Fibonacci lattice.** A node's position is a deterministic function of `(slotTier, indexWithinTier)`. Each tier has its own radial shell — slot 1 (Fact) at radius ~0.6 of the bubble, slot 5 (Dream) at radius ~53.7. Angular position within a tier follows the golden angle (137.508°) so points spread evenly without clustering. Replaces an earlier flat-disk spiral that had a "Knot Anomaly" at the center. Within a shell, position is *not* semantic.
+- **Five-tier slot ontology.** Every node is one of Fact / Scenario / Metric / Theory / Dream. The classifier assigns the tier at write time; tiers are rendered as orthogonal Z-strata (visual stride 5.0) centered on tier 3.
+- **8,000 nodes hard cap**, single InstancedMesh, single draw call. The whole tapestry fits in 224 KB of typed-array memory at 28 bytes per node. When full, oldest dead slot is recycled via the vacant-slot registry in O(1). This is the "8k kill-switch."
 - **Local-only ONNX inference.** The intent classifier runs in a web worker via `@xenova/transformers`; nothing ships to a server. The user's text never leaves their machine.
 - **Last-Writer-Wins by lwwTimestamp**, server-arbitrated. The server tracks the latest timestamp per `nodeIndex` and silently drops stale updates. No CRDT vector clocks — flat timestamps are sufficient because the server is the single arbiter.
 - **Binary frame playback.** The store holds `mockFrames: Float32Array[]` — each frame is a full 8k-slot snapshot. Timeline scrubbing just swaps the active frame index. Live mode = `mockFrames[0]` mutated in place.
@@ -59,17 +62,18 @@ These are the non-obvious choices that a reader couldn't infer from the code:
 
 ### Day-1 vs. current
 
-The Day-1 prototype encoded meaning along three labeled semantic axes — Categorical Vector (X), Temporal Scale (Y), Emotional Valence (Z) — with text labels attached directly to nodes. Commit `8767217` ("Spherical Fibonacci Defense") pivoted to the current foveated-shells model to solve a center-knot anomaly and unlock dense packing. The pivot was correct technically but traded *semantic position* (a node's `(x,y,z)` meant something) for *aesthetic geometry* (position now encodes only slot tier + insertion order). Restoring some form of semantic placement within a shell — e.g. cosine-similarity ordering — is on the roadmap, not the current build.
+The Day-1 prototype encoded meaning along three labeled semantic axes — Categorical Vector (X), Temporal Scale (Y), Emotional Valence (Z) — with text labels attached directly to nodes. Commit `8767217` ("Spherical Fibonacci Defense") pivoted to the current foveated-shells model to solve a center-knot anomaly and unlock dense packing. The pivot was correct technically but traded *semantic position* (a node's `(x,y,z)` meant something) for *aesthetic geometry* (position now encodes only slot tier + insertion order). Restoring some form of semantic placement within a shell — e.g. cosine-similarity ordering — is on the roadmap, not the current build. Future sessions: do not try to reinvent the original axes.
 
 ## Gotchas
 
-- **`useStore.nodes` (legacy) and `useSaccadeStore.mockFrames` (VRAM) live in two namespaces and do NOT unify.** A node added via the console exists in both, at different indices, with different lifecycles. Task #4 will retire the legacy graph; until then, treat them as parallel.
-- **`addNode` no longer renders anything once NodeCloud is deleted (Task #1).** The legacy graph mutation still runs but has no on-screen consequence. The live render path is `addNode → ONNX classify → injectLiveIntentVector → VRAM`. Don't be surprised when removing NodeCloud has zero visual effect — that's correct.
-- **BVH proxy bounding radius must be `0.15 * scale`.** `SaccadeInstancedMesh` uses `SphereGeometry(1, 8, 8)` scaled by `scale * 0.15 * popMul`. Any other multiplier desyncs picking from visuals.
+- **`useStore.nodes` (legacy) and `useSaccadeStore.mockFrames` (VRAM) live in two namespaces and do NOT unify.** A node added via the console exists in both, at different indices, with different lifecycles. `SaccadeInstancedMesh` bridges them via `seedFromNodes` on mount and `updateLiveFrame` on every `liveNodes` change, so `addNode` *does* still render today — but via a snapshot copy, not by writing the VRAM directly. New write paths should prefer `injectLiveIntentVector` so they participate in slot/tier ontology and starburst animation. Task #4 will retire the legacy graph; until then, treat them as parallel.
+- **`NodeCloud.tsx` still exists but is not mounted.** `Scene.tsx` only renders `SaccadeInstancedMesh`. Don't add features to `NodeCloud` — it's dead code on the render path even though the file lives in the tree. Task #1 will delete the file.
+- **BVH proxy bounding radius must be `0.15 * scale`.** `SaccadeInstancedMesh` uses `SphereGeometry(1, 8, 8)` scaled by `scale * 0.15 * popMul`. Any other multiplier desyncs picking from visuals. This invariant lands with Task #1's BVH index.
 - **`vacantSlots` is currently a single global FIFO across all 8k slots.** Dream churn can evict facts — broken by the cognitive metaphor. Task #3 introduces per-tier caches with promotion-on-reinforcement to fix this.
 - **`mockFrames[activeFrameIndex]` is mutated in place during live mode.** Don't `set({mockFrames: ...})` from a useFrame loop — Zustand re-renders will tank the frame rate. Mutate the Float32Array directly and let `SaccadeInstancedMesh` re-read it each tick.
 - **ONNX worker is a HMR singleton — re-running `pnpm dev` keeps the worker alive but a hard reload re-downloads the 25 MB model.** Intentional; don't "fix" it without a plan.
 - **Server `client !== ws` is the source of truth for echo prevention.** Removing it would flood every client with its own broadcasts. The client-side peerId check that used to back this up has been deleted on purpose.
+- **Spawn-time sentinel.** `spawnTime[i] === 0` means "no starburst animation," not "spawned at t=0." Reclaimers must zero the slot on prune, and seed paths must zero the whole array, or stale pops will fire on the wrong slots.
 
 ## Roadmap
 
@@ -77,12 +81,14 @@ Not in the current build; sequenced for future tasks:
 
 - **Per-tier caches with promotion-on-reinforcement** (Task #3) — replaces the global FIFO. Each ontology tier gets its own size cap, decay rate, and reinforcement counter; promoted nodes migrate inward with an animation.
 - **Retire `useStore.nodes`** (Task #4) — one source of truth.
+- **BVH spatial index over the 8k mesh and a functional lasso path** (Task #1) — the current lasso lives on the legacy (unmounted) `NodeCloud` component, so lasso is effectively non-functional today. The "BVH Raycast" tagline in the app header is aspirational until Task #1 lands.
 - **Visible synapse edges** — line segments drawn between semantically related nodes, restoring the "connective tissue" metaphor from Day-1.
 - **Semantic placement within a shell** — order nodes inside a tier by cosine similarity to a tier-anchor instead of by Fibonacci insertion index.
 - **Text labels on the lattice** — billboarded sprites that show the source phrase on hover, like Day-1.
 - **Multimedia ingestion** — video/audio frames embedded into the lattice via a separate ingestion worker. Requires a new frame embedding model and a sidecar payload format.
 - **Serializable "context ground" export** — a single binary another AI loads to inherit the whole memory including the source text. Today the 28-byte stride carries position + scale + color but no text. Needs a parallel text-payload binary (or sidecar JSON) referenced by slot index.
 - **Persistence** (`sovereign_save_key.bin`) — write the in-memory tapestry to disk; user-confirmed deferred.
+- **CKKS / TenSEAL homomorphic export** — the `10000.0` cleartext-matrix scale is reserved for this; the `5.0` Z-strata constant is local-render only.
 
 ## Pointers
 
