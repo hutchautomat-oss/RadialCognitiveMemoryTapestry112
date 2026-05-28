@@ -29,7 +29,7 @@ RCMT is a personal cognitive substrate. The user types a phrase (or scrubs a bin
 
 Every mutation broadcasts over WebSocket as a 28-byte binary packet to all peers, where a Last-Writer-Wins timestamp arbitrates conflicts. A scrubbable timeline replays history from any binary frame buffer.
 
-Because each node is just a 28-byte position + tier + timestamp record rather than a 1500-dim float vector, the in-memory footprint is roughly two orders of magnitude denser than an equivalent vector store (~224 KB for the full 8k cognitive ground state). The lattice is foveated: early slots cluster tightly at the center (high-attention core), later slots spiral outward on a spherical Fibonacci shell (sparse periphery). Tiers are visually separated along Z so the five ontologies are legible at a glance. Memory is append-only with FIFO reclamation when the 8k cap is hit, and peer instances merge state via the LWW binary protocol — no central authority, no embeddings ever leave the device.
+Because each node is just a 28-byte position + tier + timestamp record rather than a 1500-dim float vector, the in-memory footprint is roughly two orders of magnitude denser than an equivalent vector store (~224 KB for the full 8k cognitive ground state). The lattice is foveated: early slots cluster tightly at the center (high-attention core), later slots spiral outward on a spherical Fibonacci shell (sparse periphery). All five tiers share one continuous 3D sphere — they are distinguished by color and by their natural foveated radial band (Facts inner, Dreams outer), not by Z-plane separation. Memory is append-only with FIFO reclamation when the 8k cap is hit, and peer instances merge state via the LWW binary protocol — no central authority, no embeddings ever leave the device.
 
 This is meant to behave like a brain: dense, append-only, peer-mergeable, picked up mid-thought by any agent that loads the binary.
 
@@ -88,7 +88,7 @@ Not in the current build; sequenced for future tasks:
 - **Multimedia ingestion** — video/audio frames embedded into the lattice via a separate ingestion worker. Requires a new frame embedding model and a sidecar payload format.
 - **Serializable "context ground" export** — a single binary another AI loads to inherit the whole memory including the source text. Today the 28-byte stride carries position + scale + color but no text. Needs a parallel text-payload binary (or sidecar JSON) referenced by slot index.
 - **Persistence** (`sovereign_save_key.bin`) — write the in-memory tapestry to disk; user-confirmed deferred.
-- **CKKS / TenSEAL homomorphic export** — the `10000.0` cleartext-matrix scale is reserved for this; the `5.0` Z-strata constant is local-render only.
+- **CKKS / TenSEAL homomorphic export** — the `10000.0` cleartext-matrix scale is reserved for this. (Historical: an earlier `5.0` per-tier Z-stride existed as local-render decoration to fan tiers into 5 flat layers; it was removed when the lattice was unified into one continuous 3D sphere. Do not reintroduce it.)
 
 ## Pointers
 

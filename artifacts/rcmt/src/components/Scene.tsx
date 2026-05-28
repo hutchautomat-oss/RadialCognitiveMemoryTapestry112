@@ -38,7 +38,7 @@ export function Scene() {
         rotateSpeed={0.5}
         zoomSpeed={0.8}
         minDistance={5}
-        maxDistance={120}
+        maxDistance={200}
       />
 
       <ambientLight intensity={0.05} color="#000818" />

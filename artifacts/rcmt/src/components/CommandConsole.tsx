@@ -11,7 +11,7 @@ export function CommandConsole() {
   const [input, setInput] = useState("");
   const [log, setLog] = useState<string[]>([
     "> RCMT PLATINUM MONOLITH v5.0 — ONLINE",
-    "> Sync core connected. Fibonacci lattice initialized.",
+    "> Sync core connected. Unified Fibonacci sphere initialized.",
     "> Booting ONNX intent classifier (MiniLM-L6-v2)…",
     "> Type a memory, fact, or idea — press ENTER to inject.",
   ]);
