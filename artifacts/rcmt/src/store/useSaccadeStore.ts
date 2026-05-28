@@ -91,11 +91,14 @@ export const PROMOTION_ANIM_MS = 400;
 const DECAY_SWEEP_MS = 2000;
 
 // ── RCMT v5.0 Physics & Density Constants ───────────────────────────
-const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
+// Exported so the foveation/geometry invariants tests (`*.test.ts`) pin
+// the literal values — any refactor that drifts the spiral or shrinks
+// the foveated radius will fail the suite loudly.
+export const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
 // Z-strata (the old per-tier Z offset) was removed in Task #10 — the lattice
 // is now a single continuous 3D sphere, tiers distinguished by color +
 // foveated radius alone. See replit.md "Architecture decisions".
-const NODE_DENSITY_BUBBLE = 0.6;
+export const NODE_DENSITY_BUBBLE = 0.6;
 const MIN_SCALE = 0.15;
 const SCALE_PER_CHAR = 0.02;
 const MAX_SCALE = 1.5;
@@ -127,7 +130,7 @@ function sphericalFibonacci(i: number, total: number): [number, number, number] 
  * (Fact) sits near the core; slot 5 (Dream) disperses to the rim. The radial
  * shell is implied by the slot's absolute index via sqrt(index)·BUBBLE.
  */
-function latticePosition(
+export function latticePosition(
   absoluteIndex: number,
   tier1Based: number,
 ): [number, number, number] {
@@ -659,7 +662,12 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
 
   decaySweep: () => {
     const state = get();
-    const { mockFrames, activeFrameIndex, mass, injectedAt, slotTier, spawnTime, embeddings } = state;
+    const { mockFrames, activeFrameIndex, mass, injectedAt, slotTier, spawnTime, embeddings, isFileLoaded } = state;
+    // Decay must NEVER mutate a replay snapshot — `mockFrames[i]` for
+    // `activeFrameIndex !== 0` (or when a binary is loaded) is a frozen
+    // history frame, and writing to it during scrub rewrites the past.
+    // See `.agents/memory/rcmt-decay-vs-replay.md`.
+    if (isFileLoaded || activeFrameIndex !== 0) return;
     const frame = mockFrames[activeFrameIndex];
     if (!frame) return;
 

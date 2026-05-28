@@ -2,6 +2,12 @@ import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import app from "./app";
 import { logger } from "./lib/logger";
+import {
+  MAX_NODES,
+  STRIDE_BYTES,
+  makeTimestampMap,
+  processPacketBatch,
+} from "./lib/lww";
 
 const rawPort = process.env["PORT"];
 
@@ -35,9 +41,9 @@ const server = http.createServer(app);
 // Self-echoes are physically prevented by the `client !== ws` broadcast
 // filter below — the redundant client-side peerId check has been removed.
 // ============================================================
-const MAX_NODES = 8000;
-const STRIDE_BYTES = 28;
-const indexTimestampMap = new Float64Array(MAX_NODES).fill(0.0);
+// MAX_NODES + STRIDE_BYTES live in ./lib/lww.ts — same module the LWW unit
+// tests import, so there is no second copy of the wire-format constants.
+const indexTimestampMap = makeTimestampMap(MAX_NODES);
 
 const wss = new WebSocketServer({ server, path: "/socket" });
 
@@ -55,35 +61,13 @@ wss.on("connection", (ws) => {
 
   ws.on("message", (data) => {
     if (!Buffer.isBuffer(data)) return;
-    if (data.byteLength % STRIDE_BYTES !== 0) return;
 
-    const packetCount = data.byteLength / STRIDE_BYTES;
-    const accepted: number[] = [];
-
-    for (let i = 0; i < packetCount; i++) {
-      const offset = i * STRIDE_BYTES;
-      const nodeIndex = data.readUInt16LE(offset);
-      const timestamp = data.readDoubleLE(offset + 20);
-
-      if (nodeIndex >= MAX_NODES) continue;
-      // LWW: only forward if timestamp is newer than what we've seen
-      if (timestamp > indexTimestampMap[nodeIndex]) {
-        indexTimestampMap[nodeIndex] = timestamp;
-        accepted.push(i);
-      }
-    }
-
-    if (accepted.length === 0) return;
-
-    const broadcast = Buffer.allocUnsafe(accepted.length * STRIDE_BYTES);
-    accepted.forEach((srcIdx, dstIdx) => {
-      data.copy(
-        broadcast,
-        dstIdx * STRIDE_BYTES,
-        srcIdx * STRIDE_BYTES,
-        (srcIdx + 1) * STRIDE_BYTES,
-      );
-    });
+    const { broadcast } = processPacketBatch(
+      data,
+      indexTimestampMap,
+      MAX_NODES,
+    );
+    if (!broadcast) return;
 
     // Self-echo prevention: sender excluded from broadcast.
     wss.clients.forEach((client) => {
