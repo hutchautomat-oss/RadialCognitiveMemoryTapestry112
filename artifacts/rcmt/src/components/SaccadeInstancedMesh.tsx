@@ -33,6 +33,14 @@ import {
 } from "../store/useSaccadeStore";
 import { NetworkManager } from "../network/NetworkManager";
 
+/**
+ * Per-instance visual radius multiplier. The BVH proxy multiplier in
+ * `useSaccadeStore.ts` (`BVH_PROXY_MULT`) MUST match this. Exported so
+ * the runtime invariant `bvh_proxy` can compare both values at 1 Hz and
+ * surface a red dot if either side is hand-edited.
+ */
+export const VISUAL_RADIUS_MULT = 0.15;
+
 // ── Module-level singletons (zero GC pressure inside useFrame) ────
 const tempObject = new Object3D();
 const tempColor   = new Color();
@@ -240,7 +248,7 @@ export function SaccadeInstancedMesh() {
         }
 
         tempObject.position.set(px, py, pz);
-        tempObject.scale.setScalar(scale * 0.15 * popMul * promoMul * selMul);
+        tempObject.scale.setScalar(scale * VISUAL_RADIUS_MULT * popMul * promoMul * selMul);
         tempObject.updateMatrix();
         mesh.setMatrixAt(i, tempObject.matrix);
 
@@ -296,6 +304,10 @@ export function SaccadeInstancedMesh() {
     <instancedMesh
       ref={meshRef}
       args={[new SphereGeometry(1, 8, 8), new MeshBasicMaterial({ vertexColors: true, toneMapped: false }), MAX_NODES]}
+        // NOTE: per-instance visual radius is set to `scale * VISUAL_RADIUS_MULT`
+        // below (see tempObject.scale.setScalar(...)). The exported
+        // VISUAL_RADIUS_MULT constant is the load-bearing value the BVH proxy
+        // invariant compares against — do not inline-edit `0.15` here.
       onPointerDown={onPointerDown as never}
       onPointerUp={onPointerUp}
       frustumCulled={false}

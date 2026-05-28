@@ -57,8 +57,15 @@ async function doInject(
   useHudStore.getState().setTickerBusy(true);
   try {
     // 1. Classify.
-    const { slot, similarities, latencyMs, embedding } =
-      await OnnxWorker.classify(text);
+    const cls = await OnnxWorker.classify(text);
+    // Axiom seeds are FORCED to Fact tier (slot=1) regardless of classifier
+    // output — they're foundational facts and must land in the foveated core.
+    // The classifier confidence is still surfaced so an axiom that the model
+    // would have routed elsewhere still raises a LOW_CONF event below.
+    const slot = source === "axiom" ? 1 : cls.slot;
+    const similarities = cls.similarities;
+    const latencyMs = cls.latencyMs;
+    const embedding = cls.embedding;
 
     const tierIdx = Math.max(0, Math.min(4, slot - 1));
     const confidence = similarities.length > tierIdx ? similarities[tierIdx] : 0;

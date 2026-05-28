@@ -52,6 +52,23 @@ export function SyncCore() {
         ? COLOR.fail
         : COLOR.warn;
 
+  // Re-render the HELLO age once a second so the "Xs ago" readout actually
+  // moves. We don't need sub-second granularity for this dial.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const helloAge =
+    net.lastHelloAt > 0
+      ? formatAge(Date.now() - net.lastHelloAt)
+      : net.connected ? "pending" : "—";
+  const rejectStr =
+    net.lastRejectAt > 0 && net.lastRejectSlot !== null
+      ? `slot ${net.lastRejectSlot} · ${formatAge(Date.now() - net.lastRejectAt)} ago`
+      : "none";
+
   return (
     <div style={{ ...cardShell, top: 14, left: 14, width: 268 }}>
       <div style={cardHeader}>
@@ -60,10 +77,33 @@ export function SyncCore() {
       </div>
       <div style={cardBody}>
         <Row label="LINK" value={
-          <Pill color={net.connected ? COLOR.nominal : COLOR.fail}>
-            {net.connected ? "SYNC" : "LOCAL"}
-          </Pill>
+          <span>
+            <Pill color={net.connected ? COLOR.nominal : COLOR.fail}>
+              {net.connected ? "SYNC" : "LOCAL"}
+            </Pill>
+            <span style={{ color: COLOR.textDim, marginLeft: 8 }}>
+              peers {net.peerCount > 0 ? net.peerCount : (net.connected ? "1+" : "0")}
+            </span>
+            <span style={{ color: COLOR.textMuted, marginLeft: 8 }}>
+              HELLO {helloAge}
+            </span>
+          </span>
         } />
+        <Row
+          label="LWW REJ"
+          value={
+            <span style={{
+              color: net.lastRejectAt > 0 ? COLOR.warn : COLOR.textDim,
+            }}>
+              {rejectStr}
+              {net.lastRejectReason && (
+                <span style={{ color: COLOR.textMuted, marginLeft: 6 }}>
+                  ({net.lastRejectReason})
+                </span>
+              )}
+            </span>
+          }
+        />
         <Row label="ENGINE" value={
           <Pill color={engineColor}>{engineLabel(engine)}</Pill>
         } />
@@ -133,6 +173,15 @@ function Pill({ color, children }: { color: string; children: React.ReactNode })
       letterSpacing: 0.5,
     }}>{children}</span>
   );
+}
+
+function formatAge(ms: number): string {
+  if (ms < 1000) return `${ms | 0}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(0)}s`;
+  const m = s / 60;
+  if (m < 60) return `${m.toFixed(1)}m`;
+  return `${(m / 60).toFixed(1)}h`;
 }
 
 function engineLabel(s: OnnxStatus): string {

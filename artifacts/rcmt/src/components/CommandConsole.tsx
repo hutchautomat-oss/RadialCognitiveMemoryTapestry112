@@ -8,10 +8,14 @@
  *   /pause                 — pause the autonomous ticker
  *   /resume                — resume the autonomous ticker
  *   /rate <ms>             — set ticker period in ms (250..30000)
- *   /axioms                — re-seed the 7 axioms
+ *   /axioms                — LIST the 7 boot axioms (read-only)
+ *   /axiom-seed            — re-inject all axioms (Fact-tier forced)
  *   /invariants            — dump current invariant detail to the log
- *   /events                — dump the most recent 8 events to the log
- *   /why <slot>            — show provenance for a VRAM slot
+ *   /events [type]         — last 8 events, optionally filtered by event type
+ *                            (SPAWN/EVICT/PROMOTE/AXIOM/LWW_REJECT/…)
+ *   /why <slot>            — full provenance for a VRAM slot
+ *                            (tier, mass, age, pos, peer, 3 nearest neighbors,
+ *                            last broadcast packet age)
  *   /lasso                 — toggle lasso mode
  *   /blast                 — purge currently-selected slots
  *
@@ -21,11 +25,17 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { useStore } from "../store/useStore";
-import { useSaccadeStore, TIER_CAPS, STRIDE } from "../store/useSaccadeStore";
-import { useHudStore } from "../store/useHudStore";
+import { useSaccadeStore, TIER_CAPS, STRIDE, MAX_NODES } from "../store/useSaccadeStore";
+import { useHudStore, type HudEventType } from "../store/useHudStore";
 import { injectPhrase } from "../lib/injectPhrase";
 import { AXIOMS } from "../data/corpus";
+import { NetworkManager } from "../network/NetworkManager";
 import { cardShell, cardHeader, COLOR, FONT, TIER_NAMES } from "./hud/tokens";
+
+const VALID_EVENT_TYPES: HudEventType[] = [
+  "SPAWN", "REINFORCE", "PROMOTE", "EVICT", "LWW_REJECT", "LOW_CONF",
+  "INVARIANT_FAIL", "AXIOM", "INFO", "PAUSE", "RESUME", "ERROR",
+];
 
 const MAX_LOG = 14;
 
@@ -91,7 +101,8 @@ export function CommandConsole() {
     const hud = useHudStore.getState();
     switch (cmd) {
       case "/help":
-        pushLog("commands: /pause /resume /rate <ms> /axioms /invariants /events /why <slot> /lasso /blast /clear /help");
+        pushLog("commands: /pause /resume /rate <ms> /axioms /axiom-seed /invariants");
+        pushLog("          /events [type] /why <slot> /lasso /blast /clear /help");
         break;
       case "/clear":
         setLog(["console cleared"]);
@@ -117,7 +128,15 @@ export function CommandConsole() {
         break;
       }
       case "/axioms":
-        pushLog(`re-seeding ${AXIOMS.length} axioms…`);
+        pushLog(`${AXIOMS.length} boot axioms (Fact-tier, foveated core):`);
+        AXIOMS.forEach((a, i) => {
+          const trimmed = a.length > 64 ? a.slice(0, 61) + "…" : a;
+          pushLog(`  [${i}] ${trimmed}`);
+        });
+        pushLog(`  (use /axiom-seed to re-inject)`);
+        break;
+      case "/axiom-seed":
+        pushLog(`re-seeding ${AXIOMS.length} axioms → forced Fact tier…`);
         void (async () => {
           for (const a of AXIOMS) {
             try { await injectPhrase(a, "axiom"); } catch { /* logged via event */ }
@@ -133,9 +152,26 @@ export function CommandConsole() {
         break;
       }
       case "/events": {
-        const ev = hud.events.slice(-8);
-        if (ev.length === 0) pushLog("event ring empty");
-        ev.forEach((e) => pushLog(`  [${e.type}] ${e.phrase ?? ""} ${e.detail ?? ""}`.trim()));
+        let pool = hud.events;
+        if (arg) {
+          const wanted = arg.trim().toUpperCase();
+          if (!VALID_EVENT_TYPES.includes(wanted as HudEventType)) {
+            pushLog(`unknown event type: ${arg}`);
+            pushLog(`  valid: ${VALID_EVENT_TYPES.join(" ")}`);
+            break;
+          }
+          pool = pool.filter((e) => e.type === wanted);
+        }
+        const ev = pool.slice(-8);
+        pushLog(
+          arg
+            ? `last ${ev.length} of ${pool.length} [${arg.toUpperCase()}] (ring ${hud.events.length}/500)`
+            : `last ${ev.length} events (ring ${hud.events.length}/500)`,
+        );
+        if (ev.length === 0) pushLog("  (no matching events)");
+        ev.forEach((e) =>
+          pushLog(`  [${e.type}] ${e.phrase ?? ""} ${e.detail ?? ""}`.trim()),
+        );
         break;
       }
       case "/why": {
@@ -143,15 +179,60 @@ export function CommandConsole() {
         if (isNaN(slot)) { pushLog("/why <slot>"); break; }
         const s = useSaccadeStore.getState();
         const frame = s.mockFrames[s.activeFrameIndex];
-        if (!frame || slot < 0 || slot >= 8000) { pushLog(`slot ${arg} out of range`); break; }
+        if (!frame || slot < 0 || slot >= MAX_NODES) {
+          pushLog(`slot ${arg} out of range [0..${MAX_NODES - 1}]`);
+          break;
+        }
         const off = slot * STRIDE;
+        const px = frame[off], py = frame[off + 1], pz = frame[off + 2];
         const mass = frame[off + 6];
         const tier = s.slotTier[slot];
         const inj = s.injectedAt[slot];
         const reinf = s.reinforcementCount[slot];
-        const age = inj > 0 ? ((performance.now() - inj) / 1000).toFixed(1) + "s" : "—";
-        pushLog(`  vram[${slot}] tier=${TIER_NAMES[tier - 1] ?? "?"} mass=${mass.toFixed(2)} reinf=${reinf} age=${age}`);
-        pushLog(`  pos=(${frame[off].toFixed(2)}, ${frame[off + 1].toFixed(2)}, ${frame[off + 2].toFixed(2)})`);
+        const ageMs = inj > 0 ? Date.now() - inj : 0;
+        const age = inj > 0 ? (ageMs / 1000).toFixed(1) + "s" : "—";
+        const peer = NetworkManager.assignedPeerId;
+        const peerStr = peer >= 0 ? `peer ${peer}` : "local (no peer assigned)";
+        const helloAge = hud.net.lastHelloAt > 0
+          ? ((Date.now() - hud.net.lastHelloAt) / 1000).toFixed(1) + "s ago"
+          : "never";
+        // Find 3 nearest living neighbors by Euclidean distance.
+        const neighbors: { idx: number; d: number; tier: number }[] = [];
+        for (let i = 0; i < MAX_NODES; i++) {
+          if (i === slot) continue;
+          const m = frame[i * STRIDE + 6];
+          if (m <= 1e-6) continue;
+          const dx = frame[i * STRIDE] - px;
+          const dy = frame[i * STRIDE + 1] - py;
+          const dz = frame[i * STRIDE + 2] - pz;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (neighbors.length < 3) {
+            neighbors.push({ idx: i, d: Math.sqrt(d2), tier: s.slotTier[i] });
+            neighbors.sort((a, b) => a.d - b.d);
+          } else if (d2 < neighbors[2].d * neighbors[2].d) {
+            neighbors[2] = { idx: i, d: Math.sqrt(d2), tier: s.slotTier[i] };
+            neighbors.sort((a, b) => a.d - b.d);
+          }
+        }
+        pushLog(
+          `  vram[${slot}] tier=${TIER_NAMES[tier - 1] ?? "?"} mass=${mass.toFixed(2)} reinf=${reinf} age=${age}`,
+        );
+        pushLog(
+          `  pos=(${px.toFixed(2)}, ${py.toFixed(2)}, ${pz.toFixed(2)})  r=${Math.sqrt(px * px + py * py + pz * pz).toFixed(2)}`,
+        );
+        pushLog(`  origin=${peerStr}  HELLO=${helloAge}`);
+        if (mass <= 1e-6) {
+          pushLog(`  (slot is FREE — pos shown is the foveated rest position)`);
+        }
+        if (neighbors.length === 0) {
+          pushLog(`  neighbors: — (lattice has no other live slots)`);
+        } else {
+          pushLog(
+            `  neighbors: ${neighbors
+              .map((n) => `${n.idx}(${TIER_NAMES[n.tier - 1] ?? "?"}, d=${n.d.toFixed(2)})`)
+              .join("  ")}`,
+          );
+        }
         break;
       }
       case "/lasso":

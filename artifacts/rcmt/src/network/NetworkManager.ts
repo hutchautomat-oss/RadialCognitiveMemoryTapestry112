@@ -128,6 +128,44 @@ class NetworkManagerClass {
       if (msg && msg.type === "HELLO" && typeof msg.peerId === "number") {
         this.peerId = msg.peerId;
         console.info("[RCMT] HELLO — assigned peer", this.peerId);
+        useHudStore.getState().setNet({
+          connected: true,
+          peerId: this.peerId,
+          lastHelloAt: Date.now(),
+        });
+        useHudStore.getState().pushEvent({
+          type: "INFO",
+          detail: `HELLO accepted — assigned peer ${this.peerId}`,
+        });
+      } else if (
+        msg &&
+        msg.type === "LWW_REJECT" &&
+        typeof msg.slot === "number"
+      ) {
+        // Server-side stale-write rejection (Last-Writer-Wins arbitration).
+        // Surfaced so the user can see when peer broadcasts lose the race.
+        // Every control frame is also a liveness heartbeat — bump lastHelloAt
+        // so the SyncCore HELLO age reflects "last time we heard anything
+        // from the server", not just the initial handshake.
+        useHudStore.getState().setNet({
+          lastRejectSlot: msg.slot,
+          lastRejectReason: msg.reason ?? "stale lwwTimestamp",
+          lastRejectAt: Date.now(),
+          lastHelloAt: Date.now(),
+          connected: true,
+        });
+        useHudStore.getState().pushEvent({
+          type: "LWW_REJECT",
+          slot: msg.slot,
+          detail: msg.reason ?? "stale lwwTimestamp",
+        });
+      } else if (msg && msg.type === "PEER_COUNT" && typeof msg.count === "number") {
+        // Heartbeat semantics — see LWW_REJECT branch above.
+        useHudStore.getState().setNet({
+          peerCount: msg.count,
+          lastHelloAt: Date.now(),
+          connected: true,
+        });
       }
     } catch (err) {
       console.warn("[RCMT] Malformed control frame:", raw, err);

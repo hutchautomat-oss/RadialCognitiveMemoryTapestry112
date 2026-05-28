@@ -15,7 +15,9 @@ import {
   STRIDE,
   TIER_CAPS,
   TIER_STARTS,
+  BVH_PROXY_MULT,
 } from "../store/useSaccadeStore";
+import { VISUAL_RADIUS_MULT } from "../components/SaccadeInstancedMesh";
 
 export interface InvariantResult {
   ok: boolean;
@@ -85,55 +87,81 @@ export function checkTierContiguity(): InvariantResult {
   };
 }
 
-/** 3. FIFO ordering — within each tier, the vacant queue is strictly ascending by insertion. */
+/**
+ * 3. FIFO ordering & accounting — for each tier:
+ *   (a) queue contains only its own slot range (no cross-tier contamination);
+ *   (b) no duplicate entries (would let one slot serve two writes);
+ *   (c) queue length + tier population = tier cap (no slot is lost or
+ *       double-counted);
+ *   (d) head's `injectedAt` is ≤ tail's `injectedAt` (FIFO age ordering;
+ *       freed slots have injectedAt=0 which is treated as -∞ — purely freed
+ *       slots always sort before any back-filled-then-re-freed slot).
+ */
 export function checkFifo(): InvariantResult {
-  const { vacantSlotsByTier } = useSaccadeStore.getState();
-  // We can't directly read insertion timestamps — a sufficient proxy is that
-  // every queue contains its own slot range (no cross-tier contamination)
-  // and contains no duplicate entries.
+  const { vacantSlotsByTier, tierCounts, injectedAt, mockFrames, activeFrameIndex } =
+    useSaccadeStore.getState();
+  const frame = mockFrames[activeFrameIndex];
+  if (!frame) return { ok: false, detail: "no active frame buffer" };
+
   for (let t = 0; t < vacantSlotsByTier.length; t++) {
     const q = vacantSlotsByTier[t];
     const start = TIER_STARTS[t];
     const end = start + TIER_CAPS[t];
     const seen = new Set<number>();
-    for (const idx of q) {
+    let prevAge = -Infinity;
+    for (let qi = 0; qi < q.length; qi++) {
+      const idx = q[qi];
       if (idx < start || idx >= end) {
-        return {
-          ok: false,
-          detail: `tier ${t + 1} queue contains out-of-band slot ${idx}`,
-        };
+        return { ok: false, detail: `tier ${t + 1} queue holds out-of-band slot ${idx}` };
       }
       if (seen.has(idx)) {
-        return {
-          ok: false,
-          detail: `tier ${t + 1} queue contains duplicate slot ${idx}`,
-        };
+        return { ok: false, detail: `tier ${t + 1} queue holds duplicate slot ${idx}` };
       }
       seen.add(idx);
+      // Vacant slots are expected to have mass===0 — if not, the queue is
+      // referencing a live slot (would clobber it on next spawn).
+      const mass = frame[idx * STRIDE + 6];
+      if (mass > 1e-6) {
+        return { ok: false, detail: `tier ${t + 1} queue holds live slot ${idx} (mass=${mass.toFixed(3)})` };
+      }
+      // FIFO age ordering: zeroed (purely freed) slots collate as -∞ and
+      // appear before slots whose injectedAt was non-zero at vacation time.
+      const age = injectedAt[idx] || -Infinity;
+      if (age < prevAge - 1) {
+        return {
+          ok: false,
+          detail: `tier ${t + 1} FIFO age inversion at q[${qi - 1}]→q[${qi}]: ${prevAge}>${age}`,
+        };
+      }
+      prevAge = age;
+    }
+    // Accounting: queue + population must equal tier cap.
+    const expected = TIER_CAPS[t];
+    const actual = q.length + (tierCounts[t] ?? 0);
+    if (actual !== expected) {
+      return {
+        ok: false,
+        detail: `tier ${t + 1} accounting drift: free ${q.length} + pop ${tierCounts[t]} ≠ cap ${expected}`,
+      };
     }
   }
-  return { ok: true, detail: "all 5 tier queues clean, no contamination" };
+  return { ok: true, detail: "5 tier queues: clean, FIFO-ordered, accounting balanced" };
 }
 
 /**
- * 4. BVH proxy radius — proxy bounding sphere should be PROXY_SCALE_MULT * scale
- *    per slot. We don't crack open the BVH internals; instead we verify the
- *    multiplier constant agrees with the visual mesh multiplier.
- *
- *    Cheap, drift-resistant: catches a hand-edit on either constant.
+ * 4. BVH proxy radius — imports both load-bearing constants (visual from
+ *    SaccadeInstancedMesh, BVH proxy from useSaccadeStore) and compares them
+ *    at runtime. If anyone hand-edits one without the other, picking desyncs
+ *    from visuals and this dot turns red within 1 s.
  */
 export function checkBvhProxy(): InvariantResult {
-  // Both SaccadeInstancedMesh and useSaccadeStore hard-code 0.15 — if either
-  // is changed without the other, picking desyncs from visuals.
-  const VISUAL_MULT = 0.15;
-  const PROXY_MULT = 0.15;
-  const diff = Math.abs(VISUAL_MULT - PROXY_MULT);
+  const diff = Math.abs(VISUAL_RADIUS_MULT - BVH_PROXY_MULT);
   return {
     ok: diff < 1e-3,
     detail:
       diff < 1e-3
-        ? "proxy 0.15× matches visual 0.15× within 1e-3"
-        : `proxy/visual scale mismatch: |${PROXY_MULT}-${VISUAL_MULT}|=${diff}`,
+        ? `proxy ${BVH_PROXY_MULT.toFixed(3)}× ≡ visual ${VISUAL_RADIUS_MULT.toFixed(3)}× (Δ<1e-3)`
+        : `proxy/visual scale mismatch: |${BVH_PROXY_MULT}-${VISUAL_RADIUS_MULT}|=${diff}`,
   };
 }
 

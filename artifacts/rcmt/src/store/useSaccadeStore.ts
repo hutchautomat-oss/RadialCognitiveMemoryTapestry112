@@ -100,9 +100,11 @@ const SCALE_PER_CHAR = 0.02;
 const MAX_SCALE = 1.5;
 
 // BVH proxy triangle radius — MUST match SaccadeInstancedMesh's
-// `SphereGeometry(1, 8, 8)` scaled by `scale * 0.15`. Any other multiplier
-// desyncs picking from visuals.
-const PROXY_SCALE_MULT = 0.15;
+// `SphereGeometry(1, 8, 8)` scaled by `scale * VISUAL_RADIUS_MULT`. Any
+// other multiplier desyncs picking from visuals. Exported so the BVH-proxy
+// invariant can compare it against the renderer's visual constant.
+export const BVH_PROXY_MULT = 0.15;
+const PROXY_SCALE_MULT = BVH_PROXY_MULT;
 
 // Pre-computed equilateral-triangle offsets in the XZ plane (unit radius).
 // Multiplied by (scale * PROXY_SCALE_MULT) per slot at proxy build time.
