@@ -1,0 +1,78 @@
+To implement the zero-shot prototype mapping in JavaScript, the architecture utilizes a background Web Worker (`onnxInference.worker.js`) running the `@xenova/transformers` library. Instead of using a bulky text-classification head, the pipeline relies on cosine similarity between the user's input and five pre-defined ontological seed phrases. 
+
+Because the `feature-extraction` pipeline extracts 384-dimensional semantic vectors using the `{ normalize: true }` flag, the vector magnitudes are strictly set to 1. This mathematically simplifies the cosine similarity formula into a pure, highly efficient **dot product**. 
+
+Here is the exact JavaScript implementation for the Web Worker:
+
+```javascript
+import { pipeline } from '@xenova/transformers';
+
+// The 5 canonical seed phrases mapped to Slots 1-5
+const PROTOTYPES = [
+    "a verified fact that has already happened",        // Slot 1: Facts / Core
+    "a comparison between expected and actual outcome", // Slot 2: Scenario vs. Reality
+    "a pass or fail measurement result",                // Slot 3: Metrics
+    "a theory or plan for what should happen next",     // Slot 4: Theories / Plans
+    "a dream or speculative inspiration"                // Slot 5: Dreams / Outer Rim
+];
+
+let extractor;
+let prototypeEmbeddings = [];
+
+self.onmessage = async (e) => {
+    const { command, payload } = e.data;
+
+    // 1. INITIALIZATION & PRE-WARM
+    if (command === 'INITIALIZE_AND_WARM') {
+        // Instantiate the pipeline (downloads and caches the INT8 quantized model automatically)
+        extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+        
+        // Pre-embed the 5 seed phrases into Float32Arrays during the splash screen
+        for (const text of PROTOTYPES) {
+            const output = await extractor(text, { pooling: 'mean', normalize: true });
+            prototypeEmbeddings.push(output.data);
+        }
+
+        self.postMessage({ status: 'READY' });
+    }
+
+    // 2. LIVE INFERENCE & DOT-PRODUCT ROUTING
+    if (command === 'RUN_INFERENCE') {
+        // Extract the normalized 384-dimensional embedding for the user's input
+        const output = await extractor(payload.text, { pooling: 'mean', normalize: true });
+        const userEmbedding = output.data; // Float32Array(384)
+
+        // Initialize tracking variables for the argmax calculation
+        let maxSim = -Infinity;
+        let assignedSlot = 1;
+
+        // Calculate dot-product (cosine similarity) against all 5 cached prototypes
+        for (let i = 0; i < prototypeEmbeddings.length; i++) {
+            let dotProduct = 0;
+            
+            // Iterate through all 384 dimensions
+            for (let j = 0; j < userEmbedding.length; j++) {
+                dotProduct += userEmbedding[j] * prototypeEmbeddings[i][j];
+            }
+
+            // Argmax: Keep the slot with the highest similarity score
+            if (dotProduct > maxSim) {
+                maxSim = dotProduct;
+                assignedSlot = i + 1; // +1 to map 0-indexed array to Slots 1-5
+            }
+        }
+
+        // Return the winning slot to trigger the VRAM injection
+        self.postMessage({ 
+            status: 'INFERENCE_COMPLETE', 
+            slot: assignedSlot, 
+            confidence: maxSim 
+        });
+    }
+};
+```
+
+### How This Works in the Pipeline:
+1. **Pre-Warming:** During the application's startup, the script calculates the embeddings for the 5 prototypes and caches them as `Float32Array` objects. This ensures there is zero tokenization or embedding overhead for the reference classes when the user starts typing.
+2. **Zero-Shot Argmax:** During live inference, the loop simply multiplies and accumulates the 384 floating-point numbers between the user's input and the prototypes. This deterministically evaluates the semantic "vibe" of the text without relying on exact keyword matching. 
+3. **Routing:** The highest-scoring prototype dictates the `assignedSlot` integer (1 through 5), locking in the geometric routing to the appropriate Radial Cognitive Memory Tapestry coordinate tier.

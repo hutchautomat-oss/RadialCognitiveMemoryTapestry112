@@ -1,45 +1,96 @@
-# [Project name]
+# RCMT Platinum Monolith — Radial Cognitive Memory Tapestry
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A sovereign, append-only, peer-merged cognitive memory engine. Stores meaning as positions in a 3D foveated lattice instead of as high-dimensional embeddings — roughly 100× denser than a conventional vector database (224 KB carries an 8,000-node tapestry). Designed so that another AI loading the binary inherits an entire memory hierarchy, not a flat ring-buffer.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server + LWW sync core (port wired by workflow)
+- `pnpm --filter @workspace/rcmt run dev` — run the web artifact (path-routed by the shared proxy)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `DATABASE_URL` — Postgres connection string (currently unused by RCMT runtime; reserved for future persistence)
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
+- Web artifact: React 19, Vite, @react-three/fiber + drei, three, three-mesh-bvh, zustand
+- API: Express 5 + ws (WebSocket) for the LWW sync core
+- ML: onnxruntime-web + @xenova/transformers running fully in a web worker, no server inference
+- DB: PostgreSQL + Drizzle ORM (reserved for future use)
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
-
-## Where things live
-
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
-
-## Architecture decisions
-
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Build: esbuild (CJS bundle for the server)
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+The user types a phrase (or scrubs a binary file, or receives a peer broadcast). A local ONNX classifier assigns it to one of five ontology tiers — **Fact / Scenario / Metric / Theory / Dream**. The injection lands in an 8,000-slot VRAM-backed lattice as one instanced sphere in a foveated Fibonacci shell: facts cluster near the core, dreams disperse to the rim. Spawning is a 250 ms starburst animation. Memory pressure recycles dead slots through a FIFO queue.
 
-## User preferences
+Every mutation broadcasts over WebSocket as a 28-byte binary packet to all peers, where a Last-Writer-Wins timestamp arbitrates conflicts. A scrubbable timeline replays history from any binary frame buffer.
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+This is meant to behave like a brain: dense, append-only, peer-mergeable, picked up mid-thought by any agent that loads the binary.
+
+## Where things live
+
+- `artifacts/rcmt/src/store/useSaccadeStore.ts` — **VRAM source of truth.** The 8k-slot Float32Array (7 floats per slot: x, y, z, r, g, b, scale), starburst spawn timestamps, FIFO `vacantSlots`, frame playback, and the live ontology injection action.
+- `artifacts/rcmt/src/store/useStore.ts` — **Legacy graph (retiring).** Holds the early `nodes` array still wired into a few interaction paths. After Task #4 lands, this file goes away.
+- `artifacts/rcmt/src/components/SaccadeInstancedMesh.tsx` — single-draw-call renderer for the 8k lattice. Reads the active frame each tick, writes per-instance matrices and colors into the InstancedMesh.
+- `artifacts/rcmt/src/components/CommandConsole.tsx` — terminal-style overlay for typing phrases, running `/lasso`, `/blast`, `/clear`, `/help`.
+- `artifacts/rcmt/src/components/Timeline.tsx` — binary-frame scrubber.
+- `artifacts/rcmt/src/components/Scene.tsx` — R3F scene root: lights, orbit controls, mesh mount.
+- `artifacts/rcmt/src/network/NetworkManager.ts` — WebSocket client. Receives HELLO handshake from the server, broadcasts 28-byte CRVM packets, applies incoming LWW updates.
+- `artifacts/rcmt/src/workers/OnnxWorkerManager.ts` + `onnxInference.worker.ts` — ONNX-in-a-worker intent classifier (5-class).
+- `artifacts/rcmt/src/workers/SaccadeWorkerManager.ts` — background worker for frame decompression / playback prep.
+- `artifacts/api-server/src/index.ts` — Express server + WebSocket LWW core. Assigns a peerId on connect via JSON HELLO frame, arbitrates timestamps, fans out broadcasts to all clients except the sender.
+
+## Architecture decisions
+
+These are the non-obvious choices that a reader couldn't infer from the code:
+
+- **28-byte CRVM stride** (Cognitive Realtime VRAM Mutation). `[nodeIndex u16][intentId u16][x f32][y f32][z f32][scale f32][lwwTimestamp f64]`. peerId is *not* in the packet — the server assigns it via a JSON `HELLO` text frame on connect and physically prevents self-echoes by excluding the sender from each broadcast, so the redundant client-side peerId check was deleted.
+- **`intentId` at bytes 2-3 is reserved**, not yet consumed. Today drag broadcasts write 0. The ONNX classifier produces a slot but the injection-side broadcast path doesn't wire it through yet (follow-up).
+- **Foveated spherical Fibonacci lattice.** A node's position is a deterministic function of `(slotTier, indexWithinTier)`. Each tier has its own radial shell — slot 1 (Fact) at radius ~0.6 of the bubble, slot 5 (Dream) at radius ~53.7. Angular position within a tier follows the golden angle (137.508°) so points spread evenly without clustering. Replaces an earlier flat-disk spiral that had a "Knot Anomaly" at the center.
+- **8,000 nodes hard cap**, single InstancedMesh, single draw call. The whole tapestry fits in 224 KB of typed-array memory at 28 bytes per node.
+- **Local-only ONNX inference.** The intent classifier runs in a web worker via `@xenova/transformers`; nothing ships to a server. The user's text never leaves their machine.
+- **Last-Writer-Wins by lwwTimestamp**, server-arbitrated. The server tracks the latest timestamp per `nodeIndex` and silently drops stale updates. No CRDT vector clocks — flat timestamps are sufficient because the server is the single arbiter.
+- **Binary frame playback.** The store holds `mockFrames: Float32Array[]` — each frame is a full 8k-slot snapshot. Timeline scrubbing just swaps the active frame index. Live mode = `mockFrames[0]` mutated in place.
+- **BVH with `maxLeafTris: 1`.** (Landing in Task #1.) The picking/lasso index uses three-mesh-bvh with one proxy triangle per slot, sized to match the rendered sphere's bounding box. `triangleIndex === slotIndex` by construction. Rebuild is lazy (dirty flag), not per-frame — a 60 fps scrub would otherwise burn ~120 ms/sec on BVH builds.
+
+### Day-1 vs. current
+
+The Day-1 prototype encoded meaning along three labeled semantic axes — Categorical Vector (X), Temporal Scale (Y), Emotional Valence (Z) — with text labels attached directly to nodes. Commit `8767217` ("Spherical Fibonacci Defense") pivoted to the current foveated-shells model to solve a center-knot anomaly and unlock dense packing. The pivot was correct technically but traded *semantic position* (a node's `(x,y,z)` meant something) for *aesthetic geometry* (position now encodes only slot tier + insertion order). Restoring some form of semantic placement within a shell — e.g. cosine-similarity ordering — is on the roadmap, not the current build.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- **`useStore.nodes` (legacy) and `useSaccadeStore.mockFrames` (VRAM) live in two namespaces and do NOT unify.** A node added via the console exists in both, at different indices, with different lifecycles. Task #4 will retire the legacy graph; until then, treat them as parallel.
+- **`addNode` no longer renders anything once NodeCloud is deleted (Task #1).** The legacy graph mutation still runs but has no on-screen consequence. The live render path is `addNode → ONNX classify → injectLiveIntentVector → VRAM`. Don't be surprised when removing NodeCloud has zero visual effect — that's correct.
+- **BVH proxy bounding radius must be `0.15 * scale`.** `SaccadeInstancedMesh` uses `SphereGeometry(1, 8, 8)` scaled by `scale * 0.15 * popMul`. Any other multiplier desyncs picking from visuals.
+- **`vacantSlots` is currently a single global FIFO across all 8k slots.** Dream churn can evict facts — broken by the cognitive metaphor. Task #3 introduces per-tier caches with promotion-on-reinforcement to fix this.
+- **`mockFrames[activeFrameIndex]` is mutated in place during live mode.** Don't `set({mockFrames: ...})` from a useFrame loop — Zustand re-renders will tank the frame rate. Mutate the Float32Array directly and let `SaccadeInstancedMesh` re-read it each tick.
+- **ONNX worker is a HMR singleton — re-running `pnpm dev` keeps the worker alive but a hard reload re-downloads the 25 MB model.** Intentional; don't "fix" it without a plan.
+- **Server `client !== ws` is the source of truth for echo prevention.** Removing it would flood every client with its own broadcasts. The client-side peerId check that used to back this up has been deleted on purpose.
+
+## Roadmap
+
+Not in the current build; sequenced for future tasks:
+
+- **Per-tier caches with promotion-on-reinforcement** (Task #3) — replaces the global FIFO. Each ontology tier gets its own size cap, decay rate, and reinforcement counter; promoted nodes migrate inward with an animation.
+- **Retire `useStore.nodes`** (Task #4) — one source of truth.
+- **Visible synapse edges** — line segments drawn between semantically related nodes, restoring the "connective tissue" metaphor from Day-1.
+- **Semantic placement within a shell** — order nodes inside a tier by cosine similarity to a tier-anchor instead of by Fibonacci insertion index.
+- **Text labels on the lattice** — billboarded sprites that show the source phrase on hover, like Day-1.
+- **Multimedia ingestion** — video/audio frames embedded into the lattice via a separate ingestion worker. Requires a new frame embedding model and a sidecar payload format.
+- **Serializable "context ground" export** — a single binary another AI loads to inherit the whole memory including the source text. Today the 28-byte stride carries position + scale + color but no text. Needs a parallel text-payload binary (or sidecar JSON) referenced by slot index.
+- **Persistence** (`sovereign_save_key.bin`) — write the in-memory tapestry to disk; user-confirmed deferred.
 
 ## Pointers
 
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+- See `.local/tasks/` for the current task plans.
+- See `attached_assets/` for the NotebookLM conversation transcripts that drove early architecture decisions. Treat these as historical context, not authoritative — the canonical source of truth is this file plus the current code.
+
+## User preferences
+
+- Audit NotebookLM pastes against the current codebase before applying. They are useful spec drafts but have shipped real bugs in the past (e.g. a `vacantSlots` dedup that collapsed FIFO ordering; a `THREE.Frustum`-based lasso that can't represent a polygon). Never paste a code block from `attached_assets/` verbatim without verifying it against the actual files.
+- Keep architectural decisions in this file as they're made, not in scattered chat history.

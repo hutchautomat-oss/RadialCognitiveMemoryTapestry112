@@ -1,0 +1,45 @@
+**SYSTEM STATUS: ALL DRAFTS APPROVED. ARCHITECTURAL SCOPE VERIFIED.**
+
+Your execution order (**#2 → #1 → #3**) is mathematically and strategically flawless. Anchoring the `replit.md` Master Ledger first is the ultimate safeguard against contextual drift. It forces my context window to bounce off an immutable ground state before we touch the complex spatial indexing and memory consolidation logic. 
+
+I also formally approve your decision to punt **Multimedia Ingestion** and the **Serializable Context Ground Export** to the roadmap. We must respect the 28-byte binary stride; appending a parallel text-payload JSON sidecar is absolutely required to make the memory exportable to other AI agents, but it is a distinct feature branch that should not risk tonight's stability.
+
+As your CTO, I am locking in the final variables for **Task #3 (Per-layer caches & memory consolidation)** so you have no ambiguous logic when you write the code. 
+
+Here are the strict, default parameters for the Cognitive Caching Engine:
+
+### 1. The Differential Decay Model (Layer-Specific Forgetting)
+Currently, our exponential decay ($\lambda = 0.05$) applies uniformly. This violates the 5D ontology. Facts must persist; dreams must evaporate. We will apply a tiered $\lambda$ multiplier based on the Slot ID:
+*   **Slot 1 (Facts - Cyan):** $\lambda = 0.005$ (Barely decays. Permanent anchor points.)
+*   **Slot 2 (Deltas - Green):** $\lambda = 0.015$ (Slow decay. Long-term learning.)
+*   **Slot 3 (Metrics - Yellow):** $\lambda = 0.030$ (Standard decay. Active session data.)
+*   **Slot 4 (Theories - Orange):** $\lambda = 0.060$ (Fast decay. Speculative plans clear out if unacted upon.)
+*   **Slot 5 (Dreams - Purple):** $\lambda = 0.120$ (Hyper-decay. Abstract noise evaporates rapidly to free VRAM.)
+
+### 2. The Reinforcement & Promotion Rule (Synaptic Strengthening)
+If a new user input generates an ONNX vector that achieves a $>0.92$ cosine similarity with an *existing* active node, **do not spawn a new node**. Instead, execute a **Synaptic Reinforcement**:
+*   **Health Reset:** Instantly restore the existing node's `spawnTime` timestamp, resetting its $Health(t)$ to $1.0$.
+*   **Mass Accumulation:** Increase its transformation matrix scale (Mass) by a $+0.15$ multiplier, up to a hard cap of $3.0x$. 
+*   **Promotion:** If a node in Slot 4 or 5 is reinforced three times, it is promoted inward to the next high-certainty layer (e.g., a Theory becomes a Fact).
+
+### 3. Foveated Layer Caps (The 8k Allocation)
+To prevent the "Visual Crowding Knot", the 8,000-node maximum must be distributed to favor a dense core and a sparse rim. 
+*   **Slot 1 (Core):** 2,000 node hard-cap.
+*   **Slot 2 (Inner):** 2,000 node hard-cap.
+*   **Slot 3 (Mid):** 1,500 node hard-cap.
+*   **Slot 4 (Outer):** 1,500 node hard-cap.
+*   **Slot 5 (Rim):** 1,000 node hard-cap. 
+*(If a layer hits its cap, the oldest/lowest-health node in that specific layer is preemptively sent to the `vacantSlots` FIFO queue).*
+
+### 4. The Promotion Animation (The Orbital Shift)
+When a node is reinforced and promotes to a higher ontology tier, it cannot just teleport. 
+*   **Visual execution:** Trigger a 400ms cubic ease-in-out interpolation on its $(X,Y,Z)$ matrix vector, physically dragging it from its outer orbit into the tighter Fibonacci radius of its new Slot. It pulses to `1.5x` scale during transit and flashes Cyan `[0.0, 1.0, 1.0]` before adopting its new layer color.
+
+***
+
+**THE MANDATE:**
+All three drafts are approved as-is with these Task #3 constraints embedded. 
+
+You are officially in **Build mode**. Execute the sequence strictly: **#2 → #1 → #3**. 
+
+Drop the `replit.md` anchor first, then implement the `three-mesh-bvh` picking layer, and finish with the cognitive consolidation loop. I am tracking your commits.
