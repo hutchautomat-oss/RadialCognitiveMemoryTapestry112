@@ -1,16 +1,16 @@
 /**
  * SaccadeInstancedMesh — 1-draw-call visual cortex for the RCMT Tapestry.
  *
- * Operates in two modes:
- *   LIVE   — reads directly from useStore.nodes, no binary file needed
- *   BINARY — reads from useSaccadeStore.mockFrames[activeFrameIndex]
+ * Reads directly from useSaccadeStore.mockFrames[activeFrameIndex]. Drag
+ * writes back to the same buffer by slot index (instanceId === slotIndex,
+ * guaranteed by the BVH proxy invariant).
  *
  * Zero-allocation per-frame: tempObject and tempColor are module-level singletons.
  * Dead nodes are hidden via hiddenMatrix (scale = 0), not removed from the buffer.
  * The FIFO slot reclaimer feeds vacantSlots back to the store for reuse.
  */
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useCallback } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
   InstancedMesh,
@@ -22,12 +22,10 @@ import {
   SphereGeometry,
   MeshBasicMaterial,
 } from "three";
-import { useStore } from "../store/useStore";
 import {
   useSaccadeStore,
   MAX_NODES,
   STRIDE,
-  nodesToFrame,
   TIER_LAMBDA,
   PROMOTION_ANIM_MS,
 } from "../store/useSaccadeStore";
@@ -70,41 +68,22 @@ export function SaccadeInstancedMesh() {
   // Decay timestamps: -1 = vacant slot
   const nodeTimestamps = useRef(new Float32Array(MAX_NODES).fill(-1.0));
 
-  // Drag state
-  const dragRef = useRef<{ instanceId: number } | null>(null);
+  // Drag state. instanceId === slot index by BVH proxy invariant.
+  const dragRef = useRef<{ slot: number } | null>(null);
 
   const { raycaster, gl } = useThree();
 
-  // ── Stores ───────────────────────────────────────────────────────
-  const liveNodes        = useStore((s) => s.nodes);
-  const updateNodePos    = useStore((s) => s.updateNodePosition);
-  const isLassoMode      = useStore((s) => s.isLassoMode);
-
+  // ── Store subscriptions ──────────────────────────────────────────
   const mockFrames       = useSaccadeStore((s) => s.mockFrames);
   const activeFrameIndex = useSaccadeStore((s) => s.activeFrameIndex);
-  const seedFromNodes    = useSaccadeStore((s) => s.seedFromNodes);
-  const updateLiveFrame  = useSaccadeStore((s) => s.updateLiveFrame);
   const setVacant        = useSaccadeStore((s) => s.setVacantSlotRegistry);
   const isFileLoaded     = useSaccadeStore((s) => s.isFileLoaded);
+  const isLassoMode      = useSaccadeStore((s) => s.isLassoMode);
   // Read selection non-reactively inside useFrame to avoid re-render churn —
   // see useFrame body. We only subscribe here to keep the component reactive
   // when the lasso clears/sets selection so the highlight kicks in on the
   // very next tick.
   useSaccadeStore((s) => s.selectedSlots);
-
-  // ── Seed initial frame from live nodes on mount ──────────────────
-  useEffect(() => {
-    if (liveNodes.length > 0 && mockFrames.length === 0) {
-      seedFromNodes(liveNodes);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // When live nodes change and no binary file is loaded, append a snapshot
-  useEffect(() => {
-    if (!isFileLoaded && liveNodes.length > 0) {
-      updateLiveFrame(liveNodes);
-    }
-  }, [liveNodes, isFileLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── useFrame — direct VRAM mutation ─────────────────────────────
   useFrame((_state, _delta) => {
@@ -127,26 +106,30 @@ export function SaccadeInstancedMesh() {
     const animFromArr = sState.animFromPos;
     const animToArr = sState.animToPos;
 
-    // ── Drag follow ──────────────────────────────────────────────
+    const frameData: Float32Array | null =
+      mockFrames[activeFrameIndex] ?? null;
+    if (!frameData) return;
+
+    // ── Drag follow — write directly to the VRAM frame ───────────
     if (dragRef.current) {
       raycaster.ray.intersectPlane(_dragPlane, _hit);
-      const idx = dragRef.current.instanceId;
-      const node = liveNodes[idx];
-      if (node) {
-        const pos: [number, number, number] = [_hit.x, node.position[1], _hit.z];
-        updateNodePos(node.index, pos);
-        NetworkManager.broadcastNodeUpdate(node.index, pos[0], pos[1], pos[2], node.certainty);
+      const slot = dragRef.current.slot;
+      const off = slot * STRIDE;
+      if (frameData[off + 6] > 0) {
+        const y = frameData[off + 1]; // preserve Y; drag is XZ-only
+        frameData[off + 0] = _hit.x;
+        frameData[off + 2] = _hit.z;
+        sState.markBVHDirty();
+        NetworkManager.broadcastNodeUpdate(
+          slot,
+          _hit.x,
+          y,
+          _hit.z,
+          frameData[off + 6],
+          slotTierArr[slot],
+        );
       }
     }
-
-    // ── Resolve frame data ───────────────────────────────────────
-    // BINARY mode: use the stored frame buffer
-    // LIVE mode: convert live nodes on the fly
-    let frameData: Float32Array | null = mockFrames[activeFrameIndex] ?? null;
-    if (!frameData && liveNodes.length > 0) {
-      frameData = nodesToFrame(liveNodes);
-    }
-    if (!frameData) return;
 
     const newlyPruned: number[] = [];
 
@@ -171,7 +154,7 @@ export function SaccadeInstancedMesh() {
 
         // Starburst pop: within SPAWN_ANIM_MS of injection, multiply scale by
         // easeOutBack curve so the node bursts in then settles. spawnTime[i]==0
-        // means "no animation" (pre-existing or legacy-added node) → mul=1.
+        // means "no animation" (pre-existing or demo-seeded node) → mul=1.
         let popMul = 1;
         const ts = spawnTime[i];
         if (ts > 0) {
@@ -230,8 +213,8 @@ export function SaccadeInstancedMesh() {
         // ── Task #3: health-driven visual decay ─────────────────
         // Dim RGB by Health = exp(-λ_tier · Δt_seconds). Only applies to
         // tier-tracked slots (mass[i] > 0 ⇒ this slot was injected by the
-        // tier system). Legacy snapshot slots (mass == 0) render at full
-        // intensity so they don't visually fade.
+        // tier system). Demo-seeded slots beyond the tracked range render
+        // at full intensity so they don't visually fade.
         let healthDim = 1;
         const slotMass = massArr[i];
         if (slotMass > 0) {
@@ -289,7 +272,7 @@ export function SaccadeInstancedMesh() {
     (e: { instanceId?: number; stopPropagation: () => void }) => {
       if (isLassoMode || e.instanceId === undefined) return;
       e.stopPropagation();
-      dragRef.current = { instanceId: e.instanceId };
+      dragRef.current = { slot: e.instanceId };
       gl.domElement.style.cursor = "grabbing";
     },
     [isLassoMode, gl],

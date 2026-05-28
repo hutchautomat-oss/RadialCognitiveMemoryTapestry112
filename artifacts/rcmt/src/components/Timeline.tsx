@@ -1,6 +1,5 @@
 import { useRef, useCallback } from "react";
-import { useStore } from "../store/useStore";
-import { useSaccadeStore } from "../store/useSaccadeStore";
+import { useSaccadeStore, TIER_CAPS } from "../store/useSaccadeStore";
 import { COLOR, FONT } from "./hud/tokens";
 
 export function Timeline() {
@@ -10,14 +9,20 @@ export function Timeline() {
   const totalFrames      = useSaccadeStore((s) => s.totalFrames);
   const setFrameIndex    = useSaccadeStore((s) => s.setFrameIndex);
   const isFileLoaded     = useSaccadeStore((s) => s.isFileLoaded);
-
-  const snapshots        = useStore((s) => s.snapshots);
   const tierCounts       = useSaccadeStore((s) => s.tierCounts);
-  const occupied         = tierCounts.reduce((a, b) => a + b, 0);
 
-  const effectiveTotal = isFileLoaded ? totalFrames : Math.max(1, snapshots.length);
-  const effectiveIndex = activeFrameIndex;
-  const timelinePos    = effectiveTotal > 1 ? effectiveIndex / (effectiveTotal - 1) : 1;
+  // Total live slots = sum of per-tier occupancy. Demo seed pre-fills the
+  // Fact tier so this reads ~1334/8000 from boot, matching the legacy graph's
+  // first-load count.
+  const liveSlotCount = tierCounts.reduce((a, b) => a + b, 0);
+  // Tier cap sanity-check (silences the unused-import warning and surfaces a
+  // misconfiguration immediately if TIER_CAPS ever drifts from MAX_NODES).
+  const _maxSlots = TIER_CAPS.reduce((a, b) => a + b, 0);
+
+  // Unified timeline position (0–1). In live mode there's a single mutable
+  // frame, so the scrubber pins to NOW. In binary mode it spans the file.
+  const effectiveTotal = Math.max(1, totalFrames);
+  const timelinePos    = effectiveTotal > 1 ? activeFrameIndex / (effectiveTotal - 1) : 1;
 
   const seek = useCallback(
     (clientX: number) => {
@@ -96,7 +101,7 @@ export function Timeline() {
         <span style={{ color: COLOR.text }}>SACCADE TIMELINE</span>
         <span>
           <span style={{ color: COLOR.textMuted }}>
-            {occupied} occupied · frame {effectiveIndex + 1}/{effectiveTotal} ·{" "}
+            {liveSlotCount}/{_maxSlots} SLOTS · frame {activeFrameIndex + 1}/{effectiveTotal} ·{" "}
           </span>
           <span style={{ color: isFileLoaded ? COLOR.warn : COLOR.nominal }}>
             {isFileLoaded ? "BINARY" : "LIVE"}

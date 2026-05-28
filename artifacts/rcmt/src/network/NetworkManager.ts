@@ -15,8 +15,8 @@
  * broadcast, so self-echoes are physically impossible.
  */
 
-import { useStore } from "../store/useStore";
 import { useHudStore } from "../store/useHudStore";
+import { useSaccadeStore } from "../store/useSaccadeStore";
 
 const STRIDE_BYTES = 28;
 const RECONNECT_DELAY_MS = 3000;
@@ -175,7 +175,7 @@ class NetworkManagerClass {
   private handleIncoming(data: ArrayBuffer): void {
     const count = Math.floor(data.byteLength / STRIDE_BYTES);
     const view = new DataView(data);
-    const updateNodePosition = useStore.getState().updateNodePosition;
+    const applyRemoteUpdate = useSaccadeStore.getState().applyRemoteUpdate;
 
     for (let i = 0; i < count; i++) {
       const offset = i * STRIDE_BYTES;
@@ -185,7 +185,7 @@ class NetworkManagerClass {
       const y = view.getFloat32(offset + 8, true);
       const z = view.getFloat32(offset + 12, true);
 
-      updateNodePosition(nodeIndex, [x, y, z]);
+      applyRemoteUpdate(nodeIndex, x, y, z);
     }
     if (count > 0) useHudStore.getState().incPacketsIn(count);
   }

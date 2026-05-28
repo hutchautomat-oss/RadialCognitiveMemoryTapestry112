@@ -24,7 +24,6 @@
  */
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
-import { useStore } from "../store/useStore";
 import { useSaccadeStore, TIER_CAPS, STRIDE, MAX_NODES } from "../store/useSaccadeStore";
 import { useHudStore, type HudEventType } from "../store/useHudStore";
 import { injectPhrase } from "../lib/injectPhrase";
@@ -49,8 +48,8 @@ export function CommandConsole() {
   ]);
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
-  const isLassoMode = useStore((s) => s.isLassoMode);
-  const setLassoMode = useStore((s) => s.setLassoMode);
+  const isLassoMode = useSaccadeStore((s) => s.isLassoMode);
+  const setLassoMode = useSaccadeStore((s) => s.setLassoMode);
   const selectedSlots = useSaccadeStore((s) => s.selectedSlots);
   const blastSelectedSlots = useSaccadeStore((s) => s.blastSelectedSlots);
   const lassoEventTick = useSaccadeStore((s) => s.lassoEventTick);

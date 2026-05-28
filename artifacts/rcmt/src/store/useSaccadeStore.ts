@@ -1,7 +1,12 @@
 /**
  * useSaccadeStore — Saccade frame buffer, per-tier FIFO caches, decay engine,
- *                   promotion-on-reinforcement, and BVH spatial index for the
- *                   8k lattice.
+ *                   promotion-on-reinforcement, BVH spatial index, and UI
+ *                   selection state for the 8k lattice.
+ *
+ * This is the SOLE source of truth for node state. The legacy `useStore.nodes`
+ * graph was retired in Task #4 — every write path (drag, ONNX injection,
+ * network ingest) now mutates `mockFrames[activeFrameIndex]` directly via
+ * the actions on this store.
  *
  * Per-tier caches (Task #3): the 0..7999 index space is partitioned into 5
  * disjoint shells, one per ontology tier. Each tier owns its own FIFO of
@@ -33,7 +38,6 @@ import { create } from "zustand";
 import { BufferAttribute, BufferGeometry } from "three";
 import { MeshBVH } from "three-mesh-bvh";
 import { SaccadeWorker } from "../workers/SaccadeWorkerManager";
-import type { RCMTNode } from "./useStore";
 import { pushHudEvent } from "./useHudStore";
 
 export const MAX_NODES = 8000;
@@ -169,23 +173,6 @@ const TIER_COLORS: ReadonlyArray<[number, number, number]> = [
   [0.5, 0.0, 1.0], // 5 Purple — Dream
 ];
 
-export function nodesToFrame(nodes: RCMTNode[]): Float32Array {
-  const buf = new Float32Array(MAX_NODES * STRIDE);
-  nodes.forEach((node, i) => {
-    if (i >= MAX_NODES) return;
-    const offset = i * STRIDE;
-    const [r, g, b] = certaintyToRGB(node.certainty);
-    buf[offset + 0] = node.position[0];
-    buf[offset + 1] = node.position[1];
-    buf[offset + 2] = node.position[2];
-    buf[offset + 3] = r;
-    buf[offset + 4] = g;
-    buf[offset + 5] = b;
-    buf[offset + 6] = node.size;
-  });
-  return buf;
-}
-
 /** Build the static tier-lookup table once. Slot i ∈ [TIER_STARTS[t], TIER_STARTS[t]+TIER_CAPS[t]) → tier (t+1). */
 function buildSlotTier(): Uint8Array {
   const arr = new Uint8Array(MAX_NODES);
@@ -246,6 +233,40 @@ export interface InjectOutcome {
   tier: number;
 }
 
+// ── Demo seed ────────────────────────────────────────────────────────
+// Stride-sample demo slots so the canvas isn't empty on first load. Demo
+// occupies the first DEMO_COUNT slots in the buffer (all in the Fact tier,
+// 0..1999). Colors are computed from a stride-derived certainty so the demo
+// reads as a foveated rainbow rather than a wall of cyan Facts.
+const DEMO_STRIDE = 6;
+const DEMO_COUNT = Math.ceil(MAX_NODES / DEMO_STRIDE); // 1334
+
+function certaintyFromStrideIndex(strideSlot: number): number {
+  return Math.max(0, 1 - Math.sqrt(strideSlot / MAX_NODES));
+}
+
+function buildInitialFrame(): Float32Array {
+  const frame = new Float32Array(MAX_NODES * STRIDE);
+  let bufIdx = 0;
+  for (let s = 0; s < MAX_NODES; s += DEMO_STRIDE) {
+    if (bufIdx >= MAX_NODES) break;
+    const certainty = certaintyFromStrideIndex(s);
+    const [x, y, z] = latticePosition(bufIdx, 1);
+    const [r, g, b] = certaintyToRGB(certainty);
+    const size = 0.35 + certainty * 0.55;
+    const off = bufIdx * STRIDE;
+    frame[off + 0] = x;
+    frame[off + 1] = y;
+    frame[off + 2] = z;
+    frame[off + 3] = r;
+    frame[off + 4] = g;
+    frame[off + 5] = b;
+    frame[off + 6] = size;
+    bufIdx++;
+  }
+  return frame;
+}
+
 interface SaccadeStore {
   mockFrames: Float32Array[];
   activeFrameIndex: number;
@@ -274,18 +295,33 @@ interface SaccadeStore {
   collisionBVH: MeshBVH | null;
   bvhDirty: boolean;
 
-  // ── Selection (VRAM-aware) ────────────────────────────────────
+  // ── Selection + UI mode (VRAM-aware) ──────────────────────────
   selectedSlots: Set<number>;
   lassoEventTick: number;
   lassoEventCount: number;
+  isLassoMode: boolean;
 
   // ── Actions ───────────────────────────────────────────────────
   initWorker: () => void;
   loadFile: (file: File) => void;
   setFrameIndex: (index: number) => void;
-  seedFromNodes: (nodes: RCMTNode[]) => void;
-  updateLiveFrame: (nodes: RCMTNode[]) => void;
   setVacantSlotRegistry: (prunedIndices: number[]) => void;
+  setLassoMode: (on: boolean) => void;
+
+  /**
+   * Drag write path. Mutates only the active frame's X/Y/Z for `slot`. Y is
+   * optional — drag in the canvas is XZ-only, so callers usually pass the
+   * existing Y. No-op if the slot is vacant (scale == 0).
+   */
+  dragSlotTo: (slot: number, x: number, y: number, z: number) => void;
+
+  /**
+   * Apply a remote LWW position update to the active frame. Position-only —
+   * the server has already arbitrated by timestamp before fanning out, so
+   * the client doesn't re-check. Skips vacant slots so a peer broadcasting
+   * about a slot we don't have can't conjure a ghost dot at the origin.
+   */
+  applyRemoteUpdate: (slot: number, x: number, y: number, z: number) => void;
 
   /**
    * Inject a classified phrase into the appropriate tier's cache. If an
@@ -331,14 +367,33 @@ const _animStartTime = new Float64Array(MAX_NODES);
 const _animFromPos = new Float32Array(MAX_NODES * 3);
 const _animToPos = new Float32Array(MAX_NODES * 3);
 
+// Seed the demo frame + tier bookkeeping BEFORE store creation so the very
+// first render of SaccadeInstancedMesh sees a populated buffer (no
+// seedFromNodes bridge to fall back on anymore).
+const _initialFrame = buildInitialFrame();
+const _initialVacantByTier = buildVacantByTier();
+const _initialTierCounts = TIER_CAPS.map(() => 0);
+{
+  const factCap = TIER_CAPS[0];
+  const occupied = Math.min(DEMO_COUNT, factCap);
+  _initialVacantByTier[0] = _initialVacantByTier[0].slice(occupied);
+  _initialTierCounts[0] = occupied;
+  const now =
+    typeof performance !== "undefined" ? performance.now() : Date.now();
+  for (let i = 0; i < occupied; i++) {
+    _mass[i] = _initialFrame[i * STRIDE + 6];
+    _injectedAt[i] = now;
+  }
+}
+
 export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
-  mockFrames: [new Float32Array(MAX_NODES * STRIDE)],
+  mockFrames: [_initialFrame],
   activeFrameIndex: 0,
   totalFrames: 1,
   isFileLoaded: false,
 
-  vacantSlotsByTier: buildVacantByTier(),
-  tierCounts: TIER_CAPS.map(() => 0),
+  vacantSlotsByTier: _initialVacantByTier,
+  tierCounts: _initialTierCounts,
   slotTier: _slotTier,
   embeddings: _embeddings,
   reinforcementCount: _reinforcementCount,
@@ -356,6 +411,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
   selectedSlots: new Set<number>(),
   lassoEventTick: 0,
   lassoEventCount: 0,
+  isLassoMode: false,
 
   initWorker: () => {
     SaccadeWorker.initialize();
@@ -395,57 +451,35 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     if (!mockFrames[clamped]) SaccadeWorker.seekFrame(clamped);
   },
 
-  seedFromNodes: (nodes) => {
-    const frame = nodesToFrame(nodes);
-    // Legacy seeded nodes are treated as Fact-tier residents (slot 1). They
-    // occupy absolute indices 0..N-1, all of which belong to the Fact shell
-    // (0..1999). If N exceeds Fact's cap, the overflow is silently dropped
-    // from the cache bookkeeping — the legacy graph is being retired anyway.
-    const factCap = TIER_CAPS[0];
-    const occupied = Math.min(nodes.length, factCap);
+  setLassoMode: (on) => set({ isLassoMode: on }),
 
-    const vacantSlotsByTier = buildVacantByTier();
-    vacantSlotsByTier[0] = vacantSlotsByTier[0].slice(occupied);
-
-    const state = get();
-    state.spawnTime.fill(0);
-    state.mass.fill(0);
-    state.reinforcementCount.fill(0);
-    state.injectedAt.fill(0);
-    state.animStartTime.fill(0);
-    state.embeddings.fill(0);
-
-    const now = performance.now();
-    for (let i = 0; i < occupied; i++) {
-      state.mass[i] = frame[i * STRIDE + 6];
-      state.injectedAt[i] = now;
-    }
-
-    const tierCounts = TIER_CAPS.map(() => 0);
-    tierCounts[0] = occupied;
-
-    set({
-      mockFrames: [frame],
-      totalFrames: 1,
-      activeFrameIndex: 0,
-      vacantSlotsByTier,
-      tierCounts,
-      bvhDirty: true,
-    });
+  dragSlotTo: (slot, x, y, z) => {
+    const { mockFrames, activeFrameIndex } = get();
+    const frame = mockFrames[activeFrameIndex];
+    if (!frame) return;
+    if (slot < 0 || slot >= MAX_NODES) return;
+    const off = slot * STRIDE;
+    // Skip vacant slots — dragging "nothing" must not paint a stale color.
+    if (frame[off + 6] <= 0) return;
+    frame[off + 0] = x;
+    frame[off + 1] = y;
+    frame[off + 2] = z;
+    set({ bvhDirty: true });
   },
 
-  updateLiveFrame: (nodes) => {
-    const frame = nodesToFrame(nodes);
-    set((state) => {
-      const updated = [...state.mockFrames];
-      const trimmed = updated.length >= 200 ? updated.slice(-199) : updated;
-      return {
-        mockFrames: [...trimmed, frame],
-        totalFrames: trimmed.length + 1,
-        activeFrameIndex: trimmed.length,
-        bvhDirty: true,
-      };
-    });
+  applyRemoteUpdate: (slot, x, y, z) => {
+    const { mockFrames, activeFrameIndex } = get();
+    const frame = mockFrames[activeFrameIndex];
+    if (!frame) return;
+    if (slot < 0 || slot >= MAX_NODES) return;
+    const off = slot * STRIDE;
+    // Position-only sync mirrors the legacy behavior. A vacant slot stays
+    // vacant — peer-driven slot allocation is a separate (future) feature.
+    if (frame[off + 6] <= 0) return;
+    frame[off + 0] = x;
+    frame[off + 1] = y;
+    frame[off + 2] = z;
+    set({ bvhDirty: true });
   },
 
   setVacantSlotRegistry: (prunedIndices) => {
@@ -670,6 +704,10 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     if (isFileLoaded || activeFrameIndex !== 0) return;
     const frame = mockFrames[activeFrameIndex];
     if (!frame) return;
+    // Decay only mutates the live frame. During binary file playback the
+    // user is scrubbing immutable history — running decay there would
+    // corrupt the recorded state.
+    if (state.isFileLoaded) return;
 
     const now = performance.now();
     const pruned: number[] = [];

@@ -2,22 +2,21 @@
  * LassoSelection — overlay-canvas lasso UI wired to the BVH spatial index.
  *
  * Mounts inside the R3F <Canvas> tree (needs useThree for camera + gl).
- * When useStore.isLassoMode is on, attaches mouse handlers to gl.domElement,
- * draws a freeform polygon on a DOM overlay canvas, and on mouseup runs
- * executeLassoHitTest against the lazily-rebuilt proxy BVH. Hit slot indices
- * are written to useSaccadeStore.selectedSlots so SaccadeInstancedMesh can
- * highlight them and `/blast` can purge them.
+ * When useSaccadeStore.isLassoMode is on, attaches mouse handlers to
+ * gl.domElement, draws a freeform polygon on a DOM overlay canvas, and on
+ * mouseup runs executeLassoHitTest against the lazily-rebuilt proxy BVH.
+ * Hit slot indices are written to useSaccadeStore.selectedSlots so
+ * SaccadeInstancedMesh can highlight them and `/blast` can purge them.
  */
 
 import { useEffect, useRef } from "react";
 import { useThree } from "@react-three/fiber";
-import { useStore } from "../store/useStore";
 import { useSaccadeStore } from "../store/useSaccadeStore";
 import { executeLassoHitTest } from "../lib/bvhLasso";
 
 export function LassoSelection() {
   const { camera, gl } = useThree();
-  const isLassoMode = useStore((s) => s.isLassoMode);
+  const isLassoMode = useSaccadeStore((s) => s.isLassoMode);
   const pointsRef = useRef<[number, number][]>([]);
   const drawingRef = useRef(false);
 
