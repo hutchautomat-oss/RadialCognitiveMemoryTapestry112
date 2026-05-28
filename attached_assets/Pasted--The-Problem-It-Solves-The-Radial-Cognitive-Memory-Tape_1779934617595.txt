@@ -1,0 +1,18 @@
+**The Problem It Solves**
+The Radial Cognitive Memory Tapestry (RCMT) solves a fundamental flaw in artificial intelligence known as "Context Rot" or the quadratic attention penalty. When you feed traditional AI models long, sequential chat logs or text files, they quickly become overwhelmed, slowing down your hardware and confusing past empirical facts with future speculative dreams (hallucinations). 
+
+To fix this, the RCMT completely eliminates the text-reading middle-man. It converts your entire digital history, thoughts, and system logs into a **continuous 3D visual landscape**. Because modern Vision-Language Models (VLMs) can process images instantly, the AI "looks" at your data geometry in a single 1-millisecond glance instead of reading it word-by-word, compressing 1,000 text tokens into just 100 vision tokens without losing the meaning.
+
+**What You See on Screen**
+When you launch the app, you see a 3D "Aerospace-Grade Diagnostic Workspace" built with a Cyberpunk/Terminal visual style. 
+*   **The Tapestry:** Against a pure black background, you see a glowing, cyan 3D structure resembling a massive galaxy or neural graph made of up to 8,000 variable-sized nodes. 
+*   **The 5D Geometry:** These nodes are arranged in a "Fibonacci Spiral" based on certainty. The dense, foveated center of the spiral holds hard, binary **"Facts and Executions"**, while the outer, peripheral rims hold abstract **"Dreams and Ideas"**. 
+*   **The Interfaces:** Hovering over this 3D canvas is a green text "Command Console" (a CLI input box for typing) and a "Saccade Timeline Playback" slider at the bottom of the screen.
+
+**What You Can Interact With**
+The app acts as a "Mechanic's Bench" for your memory, allowing you to physically touch and organize your data. You can interact with the app in several ways:
+*   **Type Memories:** You can type messy, natural slang into the Command Console. A tiny, localized AI instantly categorizes your text and drops it onto the 3D canvas as a physical "starburst" node in under 15 milliseconds.
+*   **Vector Tug (Drag-and-Drop):** If you see a piece of data floating in the wrong place (e.g., a "Fact" drifting out into the "Dream" rim), you can physically click, grab, and drag that node back to the center core using your mouse. 
+*   **Lasso Isolation Patch:** If too many nodes clump together into a dense "Knot" that the AI cannot read, you can draw a lasso around the cluster and trigger a "Repulsion Blast." This applies an inverse-gravity push that scatters the nodes outward into free space so they are legible again.
+*   **Time Travel (Timeline Scrubber):** You can grab the playback slider at the bottom of the screen and scrub back and forth to instantly rewind or fast-forward through your entire memory history, watching the 3D nodes appear, shift, or decay in real-time.
+*   **Drag-and-Drop File Loading:** You can drag a raw memory file (`sovereign_save_key.bin`) directly from your desktop onto the canvas, and the visualizer will instantly load your 3D universe without freezing your browser.

@@ -1,0 +1,235 @@
+import { useState, useRef, useEffect, KeyboardEvent } from "react";
+import { useStore } from "../store/useStore";
+import { NetworkManager } from "../network/NetworkManager";
+
+const MAX_LOG = 12;
+
+export function CommandConsole() {
+  const [input, setInput] = useState("");
+  const [log, setLog] = useState<string[]>([
+    "> RCMT PLATINUM MONOLITH v5.0 — ONLINE",
+    "> Sync core connected. Fibonacci lattice initialized.",
+    "> Type a memory, fact, or idea — press ENTER to inject.",
+  ]);
+  const [isConnected, setIsConnected] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+  const addNode = useStore((s) => s.addNode);
+  const isLassoMode = useStore((s) => s.isLassoMode);
+  const setLassoMode = useStore((s) => s.setLassoMode);
+  const selectedIndices = useStore((s) => s.selectedIndices);
+  const applyRepulsion = useStore((s) => s.applyRepulsion);
+  const nodeCount = useStore((s) => s.nodes.length);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setIsConnected(NetworkManager.isConnected);
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [log]);
+
+  function pushLog(line: string) {
+    setLog((prev) => [...prev.slice(-(MAX_LOG - 1)), line]);
+  }
+
+  function handleSubmit() {
+    const text = input.trim();
+    if (!text) return;
+
+    if (text.startsWith("/lasso")) {
+      setLassoMode(!isLassoMode);
+      pushLog(`> LASSO MODE ${!isLassoMode ? "ARMED — draw on canvas" : "DISARMED"}`);
+      setInput("");
+      return;
+    }
+
+    if (text.startsWith("/blast")) {
+      if (selectedIndices.size === 0) {
+        pushLog("> ERROR: No nodes selected. Use lasso first.");
+      } else {
+        applyRepulsion(Array.from(selectedIndices));
+        pushLog(`> REPULSION BLAST fired on ${selectedIndices.size} nodes`);
+      }
+      setInput("");
+      return;
+    }
+
+    if (text.startsWith("/clear")) {
+      setLog(["> Console cleared."]);
+      setInput("");
+      return;
+    }
+
+    if (text.startsWith("/help")) {
+      pushLog("> Commands: /lasso  /blast  /clear  /help");
+      pushLog("> Or type any text to inject a memory node.");
+      setInput("");
+      return;
+    }
+
+    // Inject as a memory node
+    addNode(text);
+    pushLog(`> INJECTED: "${text.slice(0, 48)}${text.length > 48 ? "…" : ""}"`);
+
+    // Broadcast to sync peers
+    const nodes = useStore.getState().nodes;
+    const newNode = nodes[nodes.length - 1];
+    if (newNode) {
+      NetworkManager.broadcastNodeUpdate(
+        newNode.index,
+        newNode.position[0],
+        newNode.position[1],
+        newNode.position[2],
+        newNode.certainty,
+      );
+    }
+
+    setInput("");
+  }
+
+  function handleKey(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") handleSubmit();
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 16,
+        left: 16,
+        width: 360,
+        background: "rgba(0,0,0,0.85)",
+        border: "1px solid #00ffff40",
+        borderRadius: 4,
+        fontFamily: "'Share Tech Mono', 'Courier New', monospace",
+        fontSize: 11,
+        zIndex: 100,
+        backdropFilter: "blur(4px)",
+        boxShadow: "0 0 24px #00ffff20, inset 0 0 12px #00000060",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "6px 10px",
+          borderBottom: "1px solid #00ffff30",
+          background: "rgba(0,255,255,0.04)",
+        }}
+      >
+        <span style={{ color: "#00ffff", textShadow: "0 0 8px #00ffff" }}>
+          ⬡ COMMAND CONSOLE
+        </span>
+        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ color: "#ffffff50", fontSize: 10 }}>
+            {nodeCount}/{8000} NODES
+          </span>
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: isConnected ? "#00ff41" : "#ff4444",
+              boxShadow: isConnected
+                ? "0 0 6px #00ff41"
+                : "0 0 6px #ff4444",
+            }}
+          />
+          <span style={{ color: isConnected ? "#00ff41" : "#ff4444", fontSize: 10 }}>
+            {isConnected ? "SYNC" : "LOCAL"}
+          </span>
+        </span>
+      </div>
+
+      {/* Log */}
+      <div
+        ref={logRef}
+        style={{
+          padding: "6px 10px",
+          height: 140,
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+        }}
+      >
+        {log.map((line, i) => (
+          <div
+            key={i}
+            style={{
+              color: line.startsWith("> ERROR") ? "#ff4444" : "#00ff41",
+              textShadow: line.startsWith("> RCMT")
+                ? "0 0 8px #00ff41"
+                : undefined,
+              opacity: 0.5 + 0.5 * (i / log.length),
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+            }}
+          >
+            {line}
+          </div>
+        ))}
+        {/* blinking cursor */}
+        <div style={{ color: "#00ff41", animation: "blink 1s step-end infinite" }}>
+          ▮
+        </div>
+      </div>
+
+      {/* Input */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          borderTop: "1px solid #00ffff30",
+          padding: "4px 10px",
+          gap: 6,
+        }}
+      >
+        <span style={{ color: "#00ffff", textShadow: "0 0 6px #00ffff" }}>›</span>
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKey}
+          placeholder="inject memory… (/help for commands)"
+          autoComplete="off"
+          spellCheck={false}
+          style={{
+            flex: 1,
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            color: "#00ff41",
+            fontFamily: "inherit",
+            fontSize: 11,
+            caretColor: "#00ff41",
+          }}
+        />
+        {isLassoMode && (
+          <span
+            style={{
+              color: "#ff8800",
+              fontSize: 10,
+              textShadow: "0 0 6px #ff8800",
+              animation: "blink 0.6s step-end infinite",
+            }}
+          >
+            LASSO
+          </span>
+        )}
+      </div>
+
+      <style>{`
+        @keyframes blink { 50% { opacity: 0; } }
+      `}</style>
+    </div>
+  );
+}
