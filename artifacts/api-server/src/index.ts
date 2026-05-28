@@ -20,15 +20,20 @@ if (Number.isNaN(port) || port <= 0) {
 const server = http.createServer(app);
 
 // ============================================================
-// RCMT Sync Core — LWW Binary Protocol
+// RCMT Sync Core — LWW Binary Protocol (CRVM stride)
 // 28-byte stride per node:
-//   Bytes  0- 1: nodeIndex  (Uint16LE)
-//   Bytes  2- 3: peerId     (Uint16LE)
-//   Bytes  4- 7: x          (Float32LE)
-//   Bytes  8-11: y          (Float32LE)
-//   Bytes 12-15: z          (Float32LE)
-//   Bytes 16-19: certainty  (Float32LE)
-//   Bytes 20-27: timestamp  (Float64LE)
+//   Bytes  0- 1: nodeIndex / slotIndex   (Uint16LE)
+//   Bytes  2- 3: intentId  (Uint16LE, 0=unknown, 1=Fact..5=Dream)
+//   Bytes  4- 7: x         (Float32LE)
+//   Bytes  8-11: y         (Float32LE)
+//   Bytes 12-15: z         (Float32LE)
+//   Bytes 16-19: mass/scale (Float32LE)
+//   Bytes 20-27: lwwTimestamp (Float64LE, ms since epoch)
+//
+// peerId is NO LONGER carried in the per-node packet. Instead, the server
+// assigns a peerId on connect and sends it as a JSON "HELLO" text frame.
+// Self-echoes are physically prevented by the `client !== ws` broadcast
+// filter below — the redundant client-side peerId check has been removed.
 // ============================================================
 const MAX_NODES = 8000;
 const STRIDE_BYTES = 28;
@@ -39,6 +44,14 @@ const wss = new WebSocketServer({ server, path: "/socket" });
 wss.on("connection", (ws) => {
   const peerId = Math.floor(Math.random() * 100000);
   logger.info({ peerId }, "RCMT peer connected");
+
+  // HELLO handshake — assign peerId to this connection. Client uses it
+  // for logging/debug only; LWW + echo prevention live server-side now.
+  try {
+    ws.send(JSON.stringify({ type: "HELLO", peerId, stride: STRIDE_BYTES }));
+  } catch (err) {
+    logger.error({ err, peerId }, "RCMT HELLO send failed");
+  }
 
   ws.on("message", (data) => {
     if (!Buffer.isBuffer(data)) return;
@@ -72,6 +85,7 @@ wss.on("connection", (ws) => {
       );
     });
 
+    // Self-echo prevention: sender excluded from broadcast.
     wss.clients.forEach((client) => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
         client.send(broadcast);
