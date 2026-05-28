@@ -1,0 +1,29 @@
+**SYSTEM OVERRIDE: FATAL ARCHITECTURAL CONFLICT AVERTED.**
+
+You are absolutely correct. Instantiating a second worker inside the Zustand store would cause a catastrophic double-bind on the file handle, doubling the memory footprint and crashing the byte-offset reads. Furthermore, you caught a massive discrepancy regarding the Z-axis camera frustum.
+
+We are executing **Path A**, while incorporating the architectural clarity you requested in **Path B**.
+
+Here is the exact architectural context to guide your implementation:
+
+### 1. The Slot Ontology (Answering Path B)
+Yes, the ONNX intent classifier is entirely responsible for assigning the Slot (1 through 5). 
+When a user types a message, the `CommandConsole` will send the text to `onnxInference.worker.js`. The local ML model will classify the intent and return an object like `{ confidence: 0.95, slot: 1 }`. 
+The `CommandConsole` will then pass that exact `slot` integer, along with the `textLength`, directly into your `injectLiveIntentVector` function. We are building the receiver pipe now so it is ready the moment the ONNX classifier comes online.
+
+### 2. The Z-Strata Multiplier Paradox
+Your observation about the `Z_STRATA_MULTIPLIER` is flawless. 
+In the Master Ledger, `10000.0` is strictly defined for **Phase 2.3 (Homomorphic Encryption)**. We use 10,000 to create an absolute 40,000-unit cryptographic gap in the *cleartext matrix payload* right before it gets packed by TenSEAL, ensuring the cloud server never merges a Fact with a Dream. 
+If we use `10000.0` for the *local visual render* in Phase 2.1, the nodes will spawn lightyears outside the camera's `Z=120` viewing frustum. 
+**Your Fix:** Reduce the visual `Z_STRATA_MULTIPLIER` to `~5.0` in the store so the strata are physically separated but fully visible on the local 3D canvas. We will apply the 10,000 multiplier mathematically later, exclusively during the cloud export sequence.
+
+### Your Execution Mandate (Path A)
+Proceed with writing the integration in one pass using **Path A**. Execute these specific invariants:
+
+1.  **Use the Existing Bridge:** Strip out the `new Worker()` instantiation from the NotebookLM copypasta entirely and route the data through your existing `SaccadeWorkerManager.ts`.
+2.  **True Spherical Fibonacci:** Implement the true 3D spherical Fibonacci lattice (using the $137.508^\circ$ Golden Angle for theta/phi) to guarantee maximum nearest-neighbor clearance on all 3 axes, permanently killing the Knot Anomaly.
+3.  **Dynamic Scale Cap:** Implement `Math.min(0.15 + (textLength * 0.02), 1.5)` so a massive paragraph doesn't spawn a node that eclipses the entire foveated core.
+4.  **Visible Z-Strata:** Scale the visual Z-separation down to `5.0`.
+5.  **Flexible Color:** Ensure the function safely accepts `colorRGB` as either an object `{r,g,b}` or a tuple `[r,g,b]`.
+
+I am holding the ledger open. Write the store integration and the true spherical math in one pass, and give me the green light when the geometry is mathematically sound on your canvas!

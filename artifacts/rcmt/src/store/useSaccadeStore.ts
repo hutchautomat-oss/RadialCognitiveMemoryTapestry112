@@ -16,6 +16,47 @@ import type { RCMTNode } from "./useStore";
 export const MAX_NODES = 8000;
 export const STRIDE = 7;
 
+// ── RCMT v5.0 Physics & Density Constants ───────────────────────────
+// 137.508° in radians — the Golden Angle for Fibonacci phyllotaxis.
+// Guarantees maximum nearest-neighbor clearance across the sphere.
+const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
+// Visual Z-strata gap between ontology slots (1..5).
+// NOTE: Phase-4 CKKS export uses 10000.0 on the cleartext matrix BEFORE
+// TenSEAL packing — this 5.0 value is for the LOCAL 3D render only, so
+// strata are physically separated but stay inside the camera frustum.
+const Z_STRATA_VISUAL = 5.0;
+// Radius of the spherical lattice. Tuned to keep all 8000 points inside
+// the camera's near/far range with a comfortable margin.
+const LATTICE_RADIUS = 22.0;
+// Dynamic scale cap so a paragraph can't eclipse the foveated core.
+const MIN_SCALE = 0.15;
+const SCALE_PER_CHAR = 0.02;
+const MAX_SCALE = 1.5;
+
+/**
+ * True 3D Spherical Fibonacci lattice point.
+ * Uses inverse-cosine latitude spacing so points are evenly distributed
+ * across the sphere surface — eliminates the center "Knot Anomaly" that
+ * the flat-disk spiral suffered from.
+ *
+ * Returns unit-sphere coordinates [x, y, z]; multiply by your radius.
+ */
+function sphericalFibonacci(i: number, total: number): [number, number, number] {
+  const phi = Math.acos(1 - (2 * (i + 0.5)) / Math.max(total, 1));
+  const theta = i * GOLDEN_ANGLE;
+  const sinPhi = Math.sin(phi);
+  return [sinPhi * Math.cos(theta), sinPhi * Math.sin(theta), Math.cos(phi)];
+}
+
+/** Normalize colorRGB from either {r,g,b} object or [r,g,b] tuple. */
+function normalizeColor(
+  c: { r: number; g: number; b: number } | [number, number, number] | number,
+): [number, number, number] {
+  if (Array.isArray(c)) return [c[0], c[1], c[2]];
+  if (typeof c === "number") return [c, c, c]; // back-compat with NotebookLM scalar
+  return [c.r, c.g, c.b];
+}
+
 // ── Color helpers ──────────────────────────────────────────────────
 function certaintyToRGB(c: number): [number, number, number] {
   if (c > 0.6) {
@@ -66,12 +107,20 @@ interface SaccadeStore {
   seedFromNodes: (nodes: RCMTNode[]) => void;
   updateLiveFrame: (nodes: RCMTNode[]) => void;
   setVacantSlotRegistry: (prunedIndices: number[]) => void;
+  /**
+   * Inject a freshly-classified intent vector into the live frame buffer.
+   * The ONNX classifier returns `slot` (1..5 ontology tier) and confidence;
+   * CommandConsole passes those plus `textLength` and a color tuple here.
+   * Returns the VRAM slot index used, or null if the kill-switch fired.
+   */
   injectLiveIntentVector: (opts: {
-    label: string;
-    certainty: number;
-    position: [number, number, number];
-    size: number;
-  }) => number | null; // returns the slot index used, or null
+    slot: number;
+    textLength: number;
+    colorRGB:
+      | { r: number; g: number; b: number }
+      | [number, number, number]
+      | number;
+  }) => number | null;
 }
 
 export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
@@ -151,25 +200,54 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     }));
   },
 
-  injectLiveIntentVector: ({ label: _label, certainty, position, size }) => {
+  injectLiveIntentVector: ({ slot, textLength, colorRGB }) => {
     const { mockFrames, activeFrameIndex, vacantSlots } = get();
     const currentFrame = mockFrames[activeFrameIndex];
-    if (!currentFrame) return null;
 
-    // Pop the oldest dead slot from the FIFO queue
-    if (vacantSlots.length === 0) return null;
+    // 8k Kill-Switch: halt if density cap reached or no frame buffer.
+    if (!currentFrame) {
+      console.warn("[Saccade] No active frame buffer — injection aborted.");
+      return null;
+    }
+    if (vacantSlots.length === 0) {
+      console.warn(
+        "[Saccade] MAX DENSITY REACHED — awaiting pruning reclamation.",
+      );
+      return null;
+    }
+
+    // 1. Pop oldest dead VRAM index (O(1) recycle).
     const targetIndex = vacantSlots[0];
     const newVacant = vacantSlots.slice(1);
 
+    // 2. Safe-Zone Data Block Sizing (DeepSeek-OCR standard, capped).
+    const safeScale = Math.min(
+      MIN_SCALE + textLength * SCALE_PER_CHAR,
+      MAX_SCALE,
+    );
+
+    // 3. True 3D Spherical Fibonacci position — kills the Knot Anomaly.
+    const [sx, sy, sz] = sphericalFibonacci(targetIndex, MAX_NODES);
+    const x = sx * LATTICE_RADIUS;
+    const y = sy * LATTICE_RADIUS;
+    const zLattice = sz * LATTICE_RADIUS;
+
+    // 4. Orthogonal Z-Strata: visible separation between ontology tiers.
+    // Centered on slot 3 (the median) so the foveated core stays near z=0.
+    const z = zLattice + (slot - 3) * Z_STRATA_VISUAL;
+
+    // 5. Color (accepts {r,g,b}, [r,g,b], or scalar back-compat).
+    const [r, g, b] = normalizeColor(colorRGB);
+
+    // 6. Direct VRAM mutation — 28-byte binary stride.
     const offset = targetIndex * STRIDE;
-    const [r, g, b] = certaintyToRGB(certainty);
-    currentFrame[offset + 0] = position[0];
-    currentFrame[offset + 1] = position[1];
-    currentFrame[offset + 2] = position[2];
+    currentFrame[offset + 0] = x;
+    currentFrame[offset + 1] = y;
+    currentFrame[offset + 2] = z;
     currentFrame[offset + 3] = r;
     currentFrame[offset + 4] = g;
     currentFrame[offset + 5] = b;
-    currentFrame[offset + 6] = size;
+    currentFrame[offset + 6] = safeScale;
 
     set({ vacantSlots: newVacant });
     return targetIndex;
