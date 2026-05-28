@@ -1,19 +1,26 @@
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { useStore } from "../store/useStore";
+import { useSaccadeStore } from "../store/useSaccadeStore";
 import { NetworkManager } from "../network/NetworkManager";
+import { OnnxWorker, colorForSlot, type OnnxStatus } from "../workers/OnnxWorkerManager";
 
 const MAX_LOG = 12;
+const SLOT_LABELS = ["FACT", "SCENARIO", "METRIC", "THEORY", "DREAM"];
 
 export function CommandConsole() {
   const [input, setInput] = useState("");
   const [log, setLog] = useState<string[]>([
     "> RCMT PLATINUM MONOLITH v5.0 — ONLINE",
     "> Sync core connected. Fibonacci lattice initialized.",
+    "> Booting ONNX intent classifier (MiniLM-L6-v2)…",
     "> Type a memory, fact, or idea — press ENTER to inject.",
   ]);
   const [isConnected, setIsConnected] = useState(false);
+  const [engineStatus, setEngineStatus] = useState<OnnxStatus>("IDLE");
+  const [lastLatency, setLastLatency] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const inFlightRef = useRef(false);
   const addNode = useStore((s) => s.addNode);
   const isLassoMode = useStore((s) => s.isLassoMode);
   const setLassoMode = useStore((s) => s.setLassoMode);
@@ -26,6 +33,32 @@ export function CommandConsole() {
       setIsConnected(NetworkManager.isConnected);
     }, 1000);
     return () => clearInterval(id);
+  }, []);
+
+  // Boot ONNX worker once on mount; reflect status into the console log.
+  useEffect(() => {
+    OnnxWorker.onStatusChange = (p) => {
+      setEngineStatus(p.status);
+      if (p.status === "LOADING" && p.message) {
+        setLog((prev) => [...prev.slice(-(MAX_LOG - 1)), `> ⟳ ${p.message}`]);
+      }
+      if (p.status === "READY") {
+        setLog((prev) => [
+          ...prev.slice(-(MAX_LOG - 1)),
+          `> ✓ Intent engine ONLINE — ${p.message ?? ""}`,
+        ]);
+      }
+      if (p.status === "ERROR") {
+        setLog((prev) => [
+          ...prev.slice(-(MAX_LOG - 1)),
+          `> ERROR: ONNX engine failed — ${p.error ?? "unknown"} (fallback heuristic active)`,
+        ]);
+      }
+    };
+    OnnxWorker.initialize();
+    return () => {
+      OnnxWorker.onStatusChange = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -73,11 +106,10 @@ export function CommandConsole() {
       return;
     }
 
-    // Inject as a memory node
+    // Legacy node graph (kept for backwards-compat with NodeCloud renderer)
     addNode(text);
-    pushLog(`> INJECTED: "${text.slice(0, 48)}${text.length > 48 ? "…" : ""}"`);
 
-    // Broadcast to sync peers
+    // Sync peers immediately on the legacy graph node
     const nodes = useStore.getState().nodes;
     const newNode = nodes[nodes.length - 1];
     if (newNode) {
@@ -90,7 +122,43 @@ export function CommandConsole() {
       );
     }
 
+    // Clear input first for snappy UX, then fire async classification.
+    const preview = text.slice(0, 48) + (text.length > 48 ? "…" : "");
     setInput("");
+
+    if (inFlightRef.current) {
+      pushLog(`> QUEUED: "${preview}" (engine busy)`);
+      return;
+    }
+    inFlightRef.current = true;
+
+    void (async () => {
+      try {
+        const { slot, latencyMs } = await OnnxWorker.classify(text);
+        const color = colorForSlot(slot);
+        const vramIdx = useSaccadeStore
+          .getState()
+          .injectLiveIntentVector({
+            slot,
+            textLength: text.length,
+            colorRGB: color,
+          });
+
+        setLastLatency(latencyMs);
+        const label = SLOT_LABELS[slot - 1] ?? "?";
+        const tag = latencyMs > 0 ? `[${label} ${latencyMs.toFixed(0)}ms]` : `[${label} heuristic]`;
+        if (vramIdx === null) {
+          pushLog(`> ${tag} FULL — "${preview}" (lattice at 8k cap)`);
+        } else {
+          pushLog(`> ${tag} → slot ${slot} @ vram[${vramIdx}]: "${preview}"`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        pushLog(`> ERROR: classify failed — ${msg}`);
+      } finally {
+        inFlightRef.current = false;
+      }
+    })();
   }
 
   function handleKey(e: KeyboardEvent<HTMLInputElement>) {
@@ -129,6 +197,31 @@ export function CommandConsole() {
           ⬡ COMMAND CONSOLE
         </span>
         <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span
+            style={{
+              color:
+                engineStatus === "READY" || engineStatus === "CLASSIFY_COMPLETE"
+                  ? "#00ff41"
+                  : engineStatus === "ERROR"
+                    ? "#ff4444"
+                    : "#ffaa00",
+              fontSize: 10,
+              textShadow: "0 0 4px currentColor",
+            }}
+            title={lastLatency !== null ? `last classify ${lastLatency.toFixed(0)}ms` : engineStatus}
+          >
+            ⌬{engineStatus === "READY" || engineStatus === "CLASSIFY_COMPLETE"
+              ? lastLatency !== null
+                ? ` ${lastLatency.toFixed(0)}ms`
+                : " ONNX"
+              : engineStatus === "LOADING"
+                ? " DL"
+                : engineStatus === "COMPILING"
+                  ? " WARM"
+                  : engineStatus === "ERROR"
+                    ? " ERR"
+                    : " ···"}
+          </span>
           <span style={{ color: "#ffffff50", fontSize: 10 }}>
             {nodeCount}/{8000} NODES
           </span>

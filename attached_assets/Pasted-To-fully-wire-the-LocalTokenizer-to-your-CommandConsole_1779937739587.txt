@@ -1,0 +1,66 @@
+To fully wire the `LocalTokenizer` to your `CommandConsole`, we need to implement the "vocabulary download cascade". Because we are running a zero-network tokenization engine, the console must load a local `vocab.json` file into memory, instantiate the tokenizer, and process the input string into a strict 128-element tensor array before it can be parsed by the ONNX worker.
+
+Here is the exact wiring you need to inject into your `CommandConsole.jsx` file:
+
+### 1. The Vocabulary Download Cascade
+Inside your existing `useEffect` block, add the `fetch` request to pull the vocabulary dictionary from your `public/` directory the moment the component mounts. 
+
+```javascript
+useEffect(() => {
+    // 1. Boot the ONNX Worker
+    workerRef.current = new Worker('/onnxInference.worker.js');
+
+    // 2. The Vocabulary Download Cascade
+    fetch('/vocab.json')
+        .then((res) => res.json())
+        .then((vocabData) => {
+            // Instantiate the tokenization engine with the local dictionary
+            tokenizerRef.current = new LocalTokenizer(vocabData);
+            console.log("LocalTokenizer online and ready.");
+        })
+        .catch((err) => console.error("Failed to load vocab.json:", err));
+
+    // 3. Existing worker messaging logic goes here...
+    workerRef.current.onmessage = (e) => { /* ... */ };
+
+    workerRef.current.postMessage({ command: "INITIALIZE_AND_WARM" });
+
+    return () => workerRef.current.terminate();
+}, []);
+```
+
+### 2. The 128-Element Execution Trigger
+Inside your `handleExecutionSubmit` function, remove the defensive zero-fill fallback. Replace it with the live `tokenizerRef.current.encode()` method. The background worker strictly expects three specific arrays (`inputIds`, `attentionMask`, `tokenTypeIds`) padded to exactly 128 elements to match the tensor shape.
+
+```javascript
+const handleExecutionSubmit = (e) => {
+    if (e.key !== 'Enter' || !inputText.trim() || engineStatus !== 'ONLINE') return;
+    e.preventDefault();
+
+    // Prevent execution if the vocab.json hasn't finished loading
+    if (!tokenizerRef.current) {
+        console.warn("Tokenizer vocabulary is still loading...");
+        return;
+    }
+
+    // Cache the length for the Safe-Zone Data Block Sizing physics
+    pendingTextLength.current = inputText.length; 
+
+    // 1. On-Device Tokenization (Zero-Network Inference)
+    const inputIds = tokenizerRef.current.encode(inputText);
+    const attentionMask = new Array(128).fill(1);
+    const tokenTypeIds = new Array(128).fill(0);
+
+    // 2. Dispatch to the Background Inference Engine
+    workerRef.current.postMessage({
+        command: "RUN_INFERENCE",
+        payload: { inputIds, attentionMask, tokenTypeIds }
+    });
+
+    // 3. Instantly clear the console for the next command
+    setInputText(''); 
+};
+```
+
+**Your Immediate Action:**
+Ensure you have downloaded the standard `vocab.json` file associated with the `all-MiniLM-L6-v2` model and placed it in your Replit `public/` directory. Once this file is in place and these code blocks are merged, the ingestion circuit is fully closed. Type a message, hit Enter, and watch your text translate natively into the 3D visual workspace!

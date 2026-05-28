@@ -1,0 +1,20 @@
+**The Problem It Solves**
+The Radial Cognitive Memory Tapestry (RCMT) solves a fundamental flaw in artificial intelligence known as "Context Rot" and the quadratic attention penalty ($O(N^2)$). When traditional AI models process long, sequential strings of text, they experience hardware bottlenecks and "Temporal Confusion"—an inability to distinguish between a user's past empirical facts and future speculative dreams. 
+
+To fix this, the RCMT entirely eliminates the text-retrieval middle-man by converting your historical context, multimedia streams, and system logs into a continuous 5-dimensional geometric landscape. Because Vision-Language Models (VLMs) can process images simultaneously via visual convolutional layers, the AI "looks" at your data in a single computational pass. This achieves "Context Optical Compression," compressing 1,000 text tokens into just 100 vision tokens, making the AI highly efficient and hallucination-resistant.
+
+**What You See on Screen**
+When you launch the app, you are presented with an "Aerospace-Grade Diagnostic Workspace," also referred to as "The Mechanic's Bench". It uses a Cyberpunk/Terminal visual style featuring a pure black background, neon green typography, and cyan 3D structures. 
+
+*   **The Tapestry:** In the center of the screen is a 3D visual web-matrix capped at 8,000 variable-sized nodes.
+*   **The 5D Geometry:** These nodes are arranged in a "Spherical Fibonacci Lattice" to prevent visual overlapping. Following the maxim "the closer to fact, the closer to act," irreducible facts and executions (Slot 1) are packed densely at the foveated center core, while abstract ideas, beliefs, and dreams (Slot 5) float on the outer peripheral rim. 
+*   **The Interfaces:** Hovering over the 3D canvas is a green text "Command Console" (an input box for typing) and a "Saccade Timeline Playback" slider at the bottom of the screen.
+
+**What You Can Interact With**
+The app acts as an active, surgical 3D manipulation interface for your memory, allowing you to physically organize and alter your data:
+
+*   **Type Memories (Command Console):** You can type messy, natural slang into the Command Console. A lightweight local "nano-classifier" instantly translates your text into intent tags and projects it onto the 3D canvas as a physical "starburst" node in under 15 to 30 milliseconds.
+*   **Vector Tug (Drag-and-Drop):** If a piece of data is suffering from "Contextual Drift" (e.g., a hard fact drifting out into the "Dreams" rim), you can use the Vector Tug dashboard to physically grab the node with your pointer and pull it back to the high-priority core spine.
+*   **Lasso Isolation Patch:** If too many nodes cluster together into a hyper-dense "Visual Crowding Knot" that the AI cannot read, you can draw a lasso around the cluster with your mouse. This triggers a "Repulsion Blast," applying an inverse-gravity push that scatters the crowded nodes outward into free space so they are legible again.
+*   **Time Travel (Timeline Scrubber):** You can grab the playback slider at the bottom of the screen and scrub back and forth to instantly rewind or fast-forward through your entire memory history. A background Web Worker ensures this seeking happens instantly with $O(1)$ lookup times.
+*   **Drag-and-Drop File Loading:** You can drag your raw binary memory file (`sovereign_save_key.bin`) directly into the UI dropzone, and the visualizer will instantly load your 3D universe without freezing your browser.

@@ -126,11 +126,14 @@ interface SaccadeStore {
 }
 
 export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
-  mockFrames: [],
+  // Start with an empty live-frame buffer + the full slot registry so the
+  // Command Console can inject immediately without waiting for SaccadeInstancedMesh
+  // to seed from live nodes or for a .bin file to be dropped.
+  mockFrames: [new Float32Array(MAX_NODES * STRIDE)],
   activeFrameIndex: 0,
-  totalFrames: 0,
+  totalFrames: 1,
   isFileLoaded: false,
-  vacantSlots: [],
+  vacantSlots: Array.from({ length: MAX_NODES }, (_, i) => i),
   workerReady: false,
 
   initWorker: () => {
@@ -172,10 +175,22 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     if (!mockFrames[clamped]) SaccadeWorker.seekFrame(clamped);
   },
 
-  // Seed initial mock frame(s) from live node data
+  // Seed initial mock frame(s) from live node data.
+  // Also re-derive vacantSlots so we don't hand out slots [0..N-1] that
+  // were just occupied by the seeded nodes (would cause overwrite collisions).
   seedFromNodes: (nodes) => {
     const frame = nodesToFrame(nodes);
-    set({ mockFrames: [frame], totalFrames: 1, activeFrameIndex: 0 });
+    const occupied = Math.min(nodes.length, MAX_NODES);
+    const vacantSlots = Array.from(
+      { length: MAX_NODES - occupied },
+      (_, i) => i + occupied,
+    );
+    set({
+      mockFrames: [frame],
+      totalFrames: 1,
+      activeFrameIndex: 0,
+      vacantSlots,
+    });
   },
 
   // Replace frame 0 with current live node positions (called after drag / add)

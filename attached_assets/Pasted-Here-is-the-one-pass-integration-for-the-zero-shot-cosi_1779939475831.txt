@@ -1,0 +1,132 @@
+Here is the one-pass integration for the zero-shot cosine similarity mapping and the Command Console wiring. 
+
+### 1. `onnxInference.worker.js`
+This replaces the old tokenization array juggling with the 5-line Xenova pipeline, caches the prototype embeddings at startup, and performs a deterministic dot-product similarity search for inference.
+
+```javascript
+import { pipeline } from '@xenova/transformers';
+
+const PROTOTYPES = [
+    "a verified fact that has already happened",
+    "a comparison between expected and actual outcome",
+    "a pass or fail measurement result",
+    "a theory or plan for what should happen next",
+    "a dream or speculative inspiration"
+];
+
+let extractor;
+let prototypeEmbeddings = [];
+
+self.onmessage = async (e) => {
+    const { command, payload } = e.data;
+
+    if (command === 'INITIALIZE_AND_WARM') {
+        // Instantiate the pipeline (downloads and caches model/vocab automatically)
+        extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+        
+        // Pre-embed the 5 seed phrases into Float32Array
+        for (const text of PROTOTYPES) {
+            const output = await extractor(text, { pooling: 'mean', normalize: true });
+            prototypeEmbeddings.push(output.data);
+        }
+
+        self.postMessage({ status: 'READY' });
+    }
+
+    if (command === 'RUN_INFERENCE') {
+        // Embed the user's text
+        const output = await extractor(payload.text, { pooling: 'mean', normalize: true });
+        const userEmbedding = output.data;
+
+        // Cosine-similarity against all 5 prototypes -> argmax
+        let maxSim = -Infinity;
+        let assignedSlot = 1;
+
+        for (let i = 0; i < prototypeEmbeddings.length; i++) {
+            let dotProduct = 0;
+            // Since embeddings are normalized, dot product equals cosine similarity
+            for (let j = 0; j < userEmbedding.length; j++) {
+                dotProduct += userEmbedding[j] * prototypeEmbeddings[i][j];
+            }
+
+            if (dotProduct > maxSim) {
+                maxSim = dotProduct;
+                assignedSlot = i + 1; // 1-indexed to match slots 1-5
+            }
+        }
+
+        self.postMessage({ 
+            status: 'INFERENCE_COMPLETE', 
+            slot: assignedSlot, 
+            confidence: maxSim 
+        });
+    }
+};
+```
+
+### 2. `CommandConsole.tsx` (Wiring)
+This integrates the Q4 palette, routes the text directly to the `OnnxWorkerManager`, preserves the slash commands, and removes the hallucinated local tokenizer.
+
+```tsx
+import { useState, useEffect, useRef } from 'react';
+import { useSaccadeStore } from './store';
+import { OnnxWorkerManager } from './OnnxWorkerManager'; // Existing bridge
+
+const PALETTE = {
+    1: [0.0, 1.0, 1.0], // Cyan (Facts)
+    2: [0.0, 1.0, 0.0], // Green (Scenario vs Reality)
+    3: [1.0, 1.0, 0.0], // Yellow (Metrics)
+    4: [1.0, 0.5, 0.0], // Orange (Theories)
+    5: [0.5, 0.0, 1.0]  // Purple (Dreams)
+};
+
+export function CommandConsole() {
+    const [inputText, setInputText] = useState('');
+    const [engineStatus, setEngineStatus] = useState('OFFLINE');
+    const workerRef = useRef<any>(null);
+    const pendingTextLength = useRef(0);
+
+    useEffect(() => {
+        // Connect to existing worker manager (no inline new Worker)
+        workerRef.current = OnnxWorkerManager.getInstance();
+
+        workerRef.current.onmessage = (e: any) => {
+            const { status, slot, confidence } = e.data;
+
+            if (status === 'READY') {
+                setEngineStatus('ONLINE');
+            } else if (status === 'INFERENCE_COMPLETE') {
+                useSaccadeStore.getState().injectLiveIntentVector({
+                    slot: slot,
+                    textLength: pendingTextLength.current,
+                    colorRGB: PALETTE[slot as keyof typeof PALETTE]
+                });
+            }
+        };
+
+        workerRef.current.postMessage({ command: 'INITIALIZE_AND_WARM' });
+    }, []);
+
+    const handleExecutionSubmit = (e: React.KeyboardEvent) => {
+        if (e.key !== 'Enter' || !inputText.trim() || engineStatus !== 'ONLINE') return;
+        
+        // Preserve existing slash commands
+        if (inputText.startsWith('/lasso')) { /* execute lasso logic */ setInputText(''); return; }
+        if (inputText.startsWith('/blast')) { /* execute blast logic */ setInputText(''); return; }
+        if (inputText.startsWith('/clear')) { /* execute clear logic */ setInputText(''); return; }
+        if (inputText.startsWith('/help'))  { /* execute help logic */  setInputText(''); return; }
+        
+        e.preventDefault();
+        pendingTextLength.current = inputText.length;
+
+        workerRef.current.postMessage({
+            command: 'RUN_INFERENCE',
+            payload: { text: inputText } // Send raw text straight to Xenova pipeline
+        });
+
+        setInputText('');
+    };
+
+    // ... [existing render block] ...
+}
+```

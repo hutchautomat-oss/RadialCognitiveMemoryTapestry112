@@ -1,0 +1,43 @@
+To initialize the WebGPU pipeline and execute the pre-warm sequence, you must force the engine to compile its WebGPU Pipeline State Objects (PSOs) and WGSL shaders in the background before the user submits their first query. Because hardware accelerators suffer from a "cold start" compilation penalty, running a dummy inference pass during the initialization phase absorbs this latency, ensuring the first live text entry is processed in under 5ms.
+
+Based on the ONNX background worker architecture, the pre-warm sequence is executed in three exact steps:
+
+**1. Initialize the Session with WebGPU Priority**
+When creating the `ort.InferenceSession`, you configure the `executionProviders` array to prioritize WebGPU while keeping WebAssembly as a fallback for unsupported devices.
+
+**2. Generate the Dummy Matrix**
+You construct a set of blank input arrays that perfectly match the `[Batch Size (1), Sequence Length (128)]` tensor shape required by the MiniLM-L6-v2 model. 
+*   `input_ids`: A 128-element `BigInt64Array` filled with `0n` (padding tokens).
+*   `attention_mask`: A 128-element array filled with `1n` (to simulate active attention).
+*   `token_type_ids`: A 128-element array filled with `0n`.
+
+**3. Execute the Cold Inference Pass**
+You wrap these arrays into native `ort.Tensor` objects and pass them through the network. 
+
+Here is the exact implementation logic used inside the initialization block:
+
+```javascript
+// 1. Initialize session with WebGPU and WASM fallback
+inferenceSession = await ort.InferenceSession.create(MODEL_URL, { 
+    executionProviders: ['webgpu', 'wasm'],
+    graphOptimizationLevel: 'all' 
+});
+
+// 2. Generate zero-filled dummy tensors matching vocabulary bounds
+const dummyInputIds = new BigInt64Array(128).fill(0n);
+const dummyAttentionMask = new BigInt64Array(128).fill(1n);
+const dummyTokenTypeIds = new BigInt64Array(128).fill(0n);
+
+const inputTensors = {
+    input_ids: new ort.Tensor('int64', dummyInputIds,),
+    attention_mask: new ort.Tensor('int64', dummyAttentionMask,),
+    token_type_ids: new ort.Tensor('int64', dummyTokenTypeIds,)
+};
+
+// 3. Execute the dummy run to force WebGPU shader compilation
+await inferenceSession.run(inputTensors);
+
+// Post READY status to UI
+```
+
+By executing this `inferenceSession.run()` block immediately upon worker load, the heavy compilation cycles are resolved silently in the background. When the user later types a command, the GPU memory buffers are already allocated and the WGSL shaders are ready to execute the dot-product similarity search instantly.
