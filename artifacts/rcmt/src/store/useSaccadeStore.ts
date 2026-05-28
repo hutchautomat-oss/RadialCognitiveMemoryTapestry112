@@ -291,6 +291,24 @@ interface SaccadeStore {
   spawnTime: Float32Array;
   workerReady: boolean;
 
+  /**
+   * Source phrase for each slot, or null when the slot is vacant or
+   * demo-seeded (demo entries have no originating text). Parallel to
+   * `mass[]`; mutated in lockstep with every write path
+   * (inject/reinforce/promote/evict/decay/blast/prune). Read by the
+   * hover-tooltip layer to show "what is this node?" without per-frame
+   * cost — tooltip only reads `slotPhrase[hoveredSlot]`.
+   */
+  slotPhrase: (string | null)[];
+
+  /**
+   * Currently-hovered slot for the source-phrase tooltip, plus the
+   * screen-space pointer position used to anchor the DOM overlay.
+   * `null` when no slot is under the cursor (or the slot is vacant /
+   * demo-seeded and therefore has no phrase to show).
+   */
+  hoveredSlot: { slot: number; x: number; y: number } | null;
+
   // ── Spatial index ─────────────────────────────────────────────
   collisionBVH: MeshBVH | null;
   bvhDirty: boolean;
@@ -343,7 +361,12 @@ interface SaccadeStore {
       | number;
     /** Optional L2-normalized 384-d embedding. Without it, reinforcement is skipped. */
     embedding?: Float32Array | null;
+    /** Source phrase to attach to the slot for hover-tooltip lookup. */
+    phrase?: string;
   }) => InjectOutcome | null;
+
+  /** Set or clear the hovered-slot tooltip state. */
+  setHoveredSlot: (h: { slot: number; x: number; y: number } | null) => void;
 
   /** Background decay sweep — evaporates slots whose Health has fallen below threshold. */
   decaySweep: () => void;
@@ -366,6 +389,7 @@ const _mass = new Float32Array(MAX_NODES);
 const _animStartTime = new Float64Array(MAX_NODES);
 const _animFromPos = new Float32Array(MAX_NODES * 3);
 const _animToPos = new Float32Array(MAX_NODES * 3);
+const _slotPhrase: (string | null)[] = new Array(MAX_NODES).fill(null);
 
 // Seed the demo frame + tier bookkeeping BEFORE store creation so the very
 // first render of SaccadeInstancedMesh sees a populated buffer (no
@@ -405,6 +429,9 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
 
   spawnTime: new Float32Array(MAX_NODES),
   workerReady: false,
+
+  slotPhrase: _slotPhrase,
+  hoveredSlot: null,
 
   collisionBVH: null,
   bvhDirty: true,
@@ -499,6 +526,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
         state.reinforcementCount[idx] = 0;
         state.injectedAt[idx] = 0;
         state.animStartTime[idx] = 0;
+        state.slotPhrase[idx] = null;
         additionsByTier[tier - 1].push(idx);
       }
 
@@ -516,7 +544,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     });
   },
 
-  injectLiveIntentVector: ({ slot, textLength, colorRGB, embedding }) => {
+  injectLiveIntentVector: ({ slot, textLength, colorRGB, embedding, phrase }) => {
     const state = get();
     const {
       mockFrames,
@@ -578,6 +606,9 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       mass[i] = Math.min(mass[i] + MASS_REINFORCE_INCR, MASS_REINFORCE_CAP);
       reinforcementCount[i] = Math.min(255, reinforcementCount[i] + 1);
       currentFrame[off + 6] = mass[i];
+      // Update the source phrase to the most recent reinforcing input so the
+      // tooltip reflects what the user just typed (not a stale earlier seed).
+      if (phrase !== undefined) state.slotPhrase[i] = phrase;
 
       const reinforcedTier = slotTier[i];
       // Promotion gated to slots 4 and 5 only.
@@ -631,6 +662,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       mass[worstIdx] = 0;
       reinforcementCount[worstIdx] = 0;
       injectedAt[worstIdx] = 0;
+      state.slotPhrase[worstIdx] = null;
       // No vacant entry to splice in — we're reusing the same index.
       // nextVacantForTier stays []
     }
@@ -652,6 +684,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     injectedAt[targetIndex] = now;
     mass[targetIndex] = safeScale;
     reinforcementCount[targetIndex] = 0;
+    state.slotPhrase[targetIndex] = phrase ?? null;
 
     if (embedding && embedding.length === EMBEDDING_DIM) {
       const base = targetIndex * EMBEDDING_DIM;
@@ -694,9 +727,11 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     return { index: targetIndex, kind: outcomeKind, tier: tier1Based };
   },
 
+  setHoveredSlot: (h) => set({ hoveredSlot: h }),
+
   decaySweep: () => {
     const state = get();
-    const { mockFrames, activeFrameIndex, mass, injectedAt, slotTier, spawnTime, embeddings, isFileLoaded } = state;
+    const { mockFrames, activeFrameIndex, mass, injectedAt, slotTier, spawnTime, embeddings, isFileLoaded, slotPhrase } = state;
     // Decay must NEVER mutate a replay snapshot — `mockFrames[i]` for
     // `activeFrameIndex !== 0` (or when a binary is loaded) is a frozen
     // history frame, and writing to it during scrub rewrites the past.
@@ -725,6 +760,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
         mass[i] = 0;
         spawnTime[i] = 0;
         injectedAt[i] = 0;
+        slotPhrase[i] = null;
         // Clear embedding so a recycled slot can't false-match.
         const base = i * EMBEDDING_DIM;
         for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[base + k] = 0;
@@ -826,7 +862,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
 
   blastSelectedSlots: () => {
     const state = get();
-    const { mockFrames, activeFrameIndex, selectedSlots, spawnTime, slotTier, mass, injectedAt, reinforcementCount, animStartTime, embeddings } = state;
+    const { mockFrames, activeFrameIndex, selectedSlots, spawnTime, slotTier, mass, injectedAt, reinforcementCount, animStartTime, embeddings, slotPhrase } = state;
     const frame = mockFrames[activeFrameIndex];
     if (!frame || selectedSlots.size === 0) return 0;
 
@@ -841,6 +877,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       injectedAt[slotIdx] = 0;
       reinforcementCount[slotIdx] = 0;
       animStartTime[slotIdx] = 0;
+      slotPhrase[slotIdx] = null;
       const base = slotIdx * EMBEDDING_DIM;
       for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[base + k] = 0;
       const tier = slotTier[slotIdx];
@@ -901,6 +938,7 @@ function promoteSlot(
     animStartTime,
     animFromPos,
     animToPos,
+    slotPhrase,
   } = state;
 
   const sourceTier = slotTier[sourceIdx]; // 1-based
@@ -945,6 +983,7 @@ function promoteSlot(
     reinforcementCount[worstIdx] = 0;
     spawnTime[worstIdx] = 0;
     animStartTime[worstIdx] = 0;
+    slotPhrase[worstIdx] = null;
   }
 
   // ── Copy slot state source → dest ───────────────────────────────
@@ -995,6 +1034,11 @@ function promoteSlot(
   animToPos[destIdx * 3 + 1] = toY;
   animToPos[destIdx * 3 + 2] = toZ;
 
+  // Carry the source phrase forward to the destination slot so the hover
+  // tooltip stays meaningful after a promotion (the slot moves shells, but
+  // the originating text doesn't change).
+  slotPhrase[destIdx] = slotPhrase[sourceIdx];
+
   // ── Free source slot ────────────────────────────────────────────
   frame[srcOff + 6] = 0;
   mass[sourceIdx] = 0;
@@ -1002,6 +1046,7 @@ function promoteSlot(
   reinforcementCount[sourceIdx] = 0;
   spawnTime[sourceIdx] = 0;
   animStartTime[sourceIdx] = 0;
+  slotPhrase[sourceIdx] = null;
   for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[srcEmbBase + k] = 0;
 
   // Tier bookkeeping: source freed, dest claimed.

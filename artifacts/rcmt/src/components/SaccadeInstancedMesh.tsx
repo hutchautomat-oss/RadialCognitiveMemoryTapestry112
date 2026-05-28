@@ -70,6 +70,11 @@ export function SaccadeInstancedMesh() {
 
   // Drag state. instanceId === slot index by BVH proxy invariant.
   const dragRef = useRef<{ slot: number } | null>(null);
+  // Currently-hovered slot for the source-phrase tooltip. Tracked in a ref so
+  // pointermove updates don't churn React renders; we only call setHoveredSlot
+  // when the slot identity changes (enter/leave/cross) or when the pointer
+  // moves while hovering a phrase-bearing slot.
+  const hoverRef = useRef<number | null>(null);
 
   const { raycaster, gl } = useThree();
 
@@ -283,6 +288,47 @@ export function SaccadeInstancedMesh() {
     gl.domElement.style.cursor = "auto";
   }, [gl]);
 
+  // ── Hover → source-phrase tooltip ────────────────────────────────
+  // Only fires the store update when:
+  //   (a) the slot under the cursor has a phrase attached (vacant/demo
+  //       slots have slotPhrase[i] === null → no tooltip), and
+  //   (b) we're not mid-drag (drag has visual priority).
+  // Pointer screen coords come from the underlying DOM PointerEvent; r3f
+  // forwards it on `e.nativeEvent`.
+  const onPointerMove = useCallback(
+    (e: {
+      instanceId?: number;
+      nativeEvent: PointerEvent;
+      stopPropagation: () => void;
+    }) => {
+      if (dragRef.current || isLassoMode || e.instanceId === undefined) return;
+      const slot = e.instanceId;
+      const s = useSaccadeStore.getState();
+      const phrase = s.slotPhrase[slot];
+      const occupied = (s.mockFrames[s.activeFrameIndex]?.[slot * STRIDE + 6] ?? 0) > 0;
+      if (!phrase || !occupied) {
+        // Crossed onto a slot we shouldn't show a tip for — clear if we were
+        // showing one for a previous slot.
+        if (hoverRef.current !== null) {
+          hoverRef.current = null;
+          s.setHoveredSlot(null);
+        }
+        return;
+      }
+      e.stopPropagation();
+      hoverRef.current = slot;
+      s.setHoveredSlot({ slot, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY });
+    },
+    [isLassoMode],
+  );
+
+  const onPointerOut = useCallback(() => {
+    if (hoverRef.current !== null) {
+      hoverRef.current = null;
+      useSaccadeStore.getState().setHoveredSlot(null);
+    }
+  }, []);
+
   return (
     <instancedMesh
       ref={meshRef}
@@ -293,6 +339,8 @@ export function SaccadeInstancedMesh() {
         // invariant compares against — do not inline-edit `0.15` here.
       onPointerDown={onPointerDown as never}
       onPointerUp={onPointerUp}
+      onPointerMove={onPointerMove as never}
+      onPointerOut={onPointerOut}
       frustumCulled={false}
     />
   );

@@ -4,6 +4,7 @@ import { Scene } from "./components/Scene";
 import { CommandConsole } from "./components/CommandConsole";
 import { Timeline } from "./components/Timeline";
 import { ThoughtTicker } from "./components/ThoughtTicker";
+import { HoverTooltip } from "./components/HoverTooltip";
 import {
   SyncCore,
   Ontology,
@@ -151,6 +152,7 @@ export default function App() {
       <CommandConsole />
       <TelemetryBar />
       <Timeline />
+      <HoverTooltip />
 
       {/* Invisible: drives autonomous thought loop. */}
       <ThoughtTicker />

@@ -77,6 +77,7 @@ async function doInject(
       textLength: text.length,
       colorRGB: color,
       embedding,
+      phrase: text,
     });
 
     if (outcome === null) {
