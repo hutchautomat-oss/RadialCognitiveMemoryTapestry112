@@ -7,7 +7,8 @@ import { useEffect, useState } from "react";
 import { useHudStore } from "../../store/useHudStore";
 import { OnnxWorker, type OnnxStatus } from "../../workers/OnnxWorkerManager";
 import { NetworkManager } from "../../network/NetworkManager";
-import { cardShell, cardHeader, cardBody, COLOR } from "./tokens";
+import { cardBody, COLOR } from "./tokens";
+import { HudCard } from "./HudCard";
 
 export function SyncCore() {
   const net = useHudStore((s) => s.net);
@@ -70,11 +71,15 @@ export function SyncCore() {
       : "none";
 
   return (
-    <div style={{ ...cardShell, top: 14, left: 14, width: 268 }}>
-      <div style={cardHeader}>
-        <span>SYNC CORE</span>
+    <HudCard
+      id="sync-core"
+      title="SYNC CORE"
+      initial={{ top: 14, left: 14 }}
+      width={268}
+      headerExtra={
         <span style={{ color: COLOR.textMuted }}>peer {net.peerId >= 0 ? net.peerId : "—"}</span>
-      </div>
+      }
+    >
       <div style={cardBody}>
         <Row label="LINK" value={
           <span>
@@ -149,7 +154,7 @@ export function SyncCore() {
           }
         />
       </div>
-    </div>
+    </HudCard>
   );
 }
 

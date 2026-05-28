@@ -30,7 +30,8 @@ import { useHudStore, type HudEventType } from "../store/useHudStore";
 import { injectPhrase } from "../lib/injectPhrase";
 import { AXIOMS } from "../data/corpus";
 import { NetworkManager } from "../network/NetworkManager";
-import { cardShell, cardHeader, COLOR, FONT, TIER_NAMES } from "./hud/tokens";
+import { COLOR, FONT, TIER_NAMES } from "./hud/tokens";
+import { HudCard } from "./hud/HudCard";
 
 const VALID_EVENT_TYPES: HudEventType[] = [
   "SPAWN", "REINFORCE", "PROMOTE", "EVICT", "LWW_REJECT", "LOW_CONF",
@@ -259,24 +260,21 @@ export function CommandConsole() {
   const ticker = useHudStore((s) => s.ticker);
 
   return (
-    <div
-      style={{
-        ...cardShell,
-        bottom: 96,
-        left: 290,
-        // Shrink to fit when the viewport narrows so it never collides with
-        // the EventStream's left edge (which sits at right:14 + width:380).
-        width: "min(460px, calc(100vw - 290px - 14px - 380px - 14px - 12px))",
-        minWidth: 320,
-      }}
-    >
-      <div style={cardHeader}>
-        <span>COMMAND CONSOLE</span>
+    <HudCard
+      id="command-console"
+      title="COMMAND CONSOLE"
+      initial={{ bottom: 96, left: 290 }}
+      // Shrink to fit when the viewport narrows so the card never collides
+      // with the EventStream's left edge (right:14 + width:380).
+      width="min(460px, calc(100vw - 290px - 14px - 380px - 14px - 12px))"
+      style={{ minWidth: 320 }}
+      headerExtra={
         <span style={{ color: COLOR.textMuted, fontSize: 9 }}>
           ticker {ticker.running ? "AUTO" : "PAUSE"}{ticker.busy ? " ·BUSY" : ""}
           {" · "}cap {TIER_CAPS.reduce((a, b) => a + b, 0)}
         </span>
-      </div>
+      }
+    >
       <div
         ref={logRef}
         style={{
@@ -340,6 +338,6 @@ export function CommandConsole() {
           <span style={{ color: COLOR.warn, fontSize: 9, letterSpacing: 1 }}>LASSO</span>
         )}
       </div>
-    </div>
+    </HudCard>
   );
 }

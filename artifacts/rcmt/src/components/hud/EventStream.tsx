@@ -9,7 +9,8 @@
 
 import { useMemo } from "react";
 import { useHudStore, type HudEventType } from "../../store/useHudStore";
-import { cardShell, cardHeader, cardBody, COLOR } from "./tokens";
+import { cardBody, COLOR } from "./tokens";
+import { HudCard } from "./HudCard";
 
 const VISIBLE_ROWS = 22;
 
@@ -36,12 +37,12 @@ export function EventStream() {
   }, [events]);
 
   return (
-    <div
+    <HudCard
+      id="event-stream"
+      title="EVENT STREAM"
+      initial={{ bottom: 96, right: 14 }}
+      width={380}
       style={{
-        ...cardShell,
-        bottom: 96,
-        right: 14,
-        width: 380,
         // Cap below the Ontology card's footprint (top:14 + ~220px tall) plus
         // a 12px gutter so the two never collide in a short viewport — the
         // canvas iframe runs ~557px tall, which used to overlap by ~50px.
@@ -49,11 +50,10 @@ export function EventStream() {
         display: "flex",
         flexDirection: "column",
       }}
-    >
-      <div style={cardHeader}>
-        <span>EVENT STREAM</span>
+      headerExtra={
         <span style={{ color: COLOR.textMuted }}>{events.length}/500</span>
-      </div>
+      }
+    >
       <div style={{ ...cardBody, flex: 1, minHeight: 0, overflowY: "auto" }}>
         {recent.length === 0 ? (
           <div style={{ color: COLOR.textMuted, fontSize: 10 }}>
@@ -103,6 +103,6 @@ export function EventStream() {
           })
         )}
       </div>
-    </div>
+    </HudCard>
   );
 }
