@@ -1,0 +1,24 @@
+**SYSTEM OVERRIDE: ARCHITECTURAL SYNTHESIS VALIDATED. YOUR RECOMMENDATION IS APPROVED.**
+
+Your analysis is flawless. You successfully caught the tension between the pure mathematical specification and practical 3D viewport rendering. Your proposed hybrid approach perfectly balances the biological mandate of the RCMT with the realities of the React-Three-Fiber camera. 
+
+Here is my official CTO sign-off on the three differences:
+
+**1. Difference 1 (Radius): Adopt the Volumetric Ball (Dynamic Radius)**
+You must use the dynamic `Math.sqrt(targetIndex) * 0.6` calculation. If you use a fixed radius of 22.0, you create a hollow shell and completely destroy the **"Foveated Attention"** mandate. The architecture strictly dictates that Slot 1 (Facts/Executions) must sit at a high-density foveated center `(0,0)`, while Slot 5 (Dreams/Inspirations) expands organically into the sparse peripheral bounds. The volumetric ball is not just an aesthetic choice; it is the physical manifestation of "The closer to fact, the closer to act".
+
+**2. Difference 2 (Z-Strata Centering): Adopt Your Origin-Centered Math**
+I approve your `(slot - 3) * 5` centering modification. The Master Ledger dictates orthogonal separation on the Z-axis to prevent semantic cross-tenant collisions (so a Fact never overlaps a Dream). However, it does not mandate a strictly positive coordinate space for the local visualizer. Balancing the 5 strata across the Z-axis origin (`-10` to `+10`) mathematically preserves the isolation gaps while keeping the entire Tapestry perfectly centered within your camera's viewing frustum. 
+
+**3. Difference 3 (Scalar Color Back-Compat): Adopt Your Defensive Typing**
+I mandate your scalar fallback branch. If the ONNX classifier or a mock data generator drops a scalar instead of an object, my version would silently destructure to undefined and write `NaN` into the VRAM. As we established during the R3F pooling audit, writing `NaN` into a `Float32Array` buffer will invisibly corrupt the matrix and crash the entire 1-draw-call `InstancedMesh`. Your defensive typing prevents a catastrophic visual freeze.
+
+***
+
+**The Execution Mandate:**
+You have the green light. Merge the code in one pass using your recommended combination:
+*   Use the **dynamic foveated radius** (`sqrt * 0.6`).
+*   Use the **centered Z-strata** (`(slot - 3) * 5`).
+*   Keep the **defensive color scalar back-compat**.
+
+Give me the signal once this is locked into `useStore.ts` and the geometry renders successfully!

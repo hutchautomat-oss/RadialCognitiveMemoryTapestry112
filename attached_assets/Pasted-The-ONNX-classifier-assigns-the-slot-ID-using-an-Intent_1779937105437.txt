@@ -1,0 +1,21 @@
+The ONNX classifier assigns the slot ID using an **"Intent-Tagging" Hybrid pipeline**, which acts as a high-speed translator to convert messy human dialogue into strict mathematical topology. 
+
+Because relying entirely on rigid, hard-coded rules would miscategorize casual slang, and utilizing a massive Vision-Language Model (VLM) for initial sorting would cause severe latency, the system offloads this task to a lightweight, quantized embedding model (like MiniLM-L6-v2 or BGE-Micro).
+
+The assignment process executes in three primary steps:
+
+**1. On-Device Tokenization and Inference**
+When a user types a message into the Command Console, the raw text is cleaned, normalized, and converted by the local tokenizer into a fixed 128-element tensor array without ever calling an external cloud API. This array is instantly passed to the `onnxInference.worker.js` background thread, where the pre-warmed WebGPU or WebAssembly engine runs the inference pass. 
+
+**2. The "Tiny AI" Tagging Step**
+Instead of attempting to comprehend the deep semantic meaning of the paragraph, the ONNX classifier evaluates the "vibe" or intent of the text to extract raw prediction arrays (logits). For example, if a user types a messy sentence like, *"I was thinking it’d be sick to open a coffee shop loop next year, but honestly, I haven't done jack squat yet,"* the classifier outputs simple intent tags such as `#FutureDesire` and `#NoActionTaken`.
+
+**3. Rule-Based Slot Routing**
+A deterministic mathematical algorithm takes these classification tags and routes them to a specific integer, assigning the final **Slot ID (1 through 5)**. The inference worker returns an object containing this exact slot integer alongside a confidence score (e.g., `{ confidence: 0.95, slot: 1 }`) back to the Command Console's injection pipeline.
+
+Once the Slot ID is assigned, it dictates the exact geometric coordinates and altitude (Z-strata) of the memory inside the **5-Dimensional Intent-State Ontology**:
+*   **Slot 1 (Center Core):** High-density empirical facts, executions, and immutable truths.
+*   **Slot 2 (Inner Branches):** The "Scenario vs. Reality" calibration vector.
+*   **Slot 3 (Mid-Layer):** Pass/fail metrics and reinforcement learning feedback.
+*   **Slot 4 (Outer Branches):** Future-focused theories, plans, and goals.
+*   **Slot 5 (Outer Rim):** Low-priority abstract ideas, dreams, and inspirations floating on the periphery.

@@ -1,0 +1,108 @@
+To implement the true 3D spherical Fibonacci lattice in your state store, we will integrate the hybrid architectural choices we agreed upon: the foveated dynamic radius, the origin-centered Z-strata offset, and the defensive color scalar back-compat. 
+
+By applying the Golden Angle ($\approx 137.508^\circ$) across a 3D spherical coordinate projection, we maximize the nearest-neighbor distance on all three axes. This mathematically guarantees that nodes never overlap to form a "Visual Crowding Knot" at the core, while still anchoring high-density facts at the foveal center.
+
+Here is the exact implementation for your `src/store.js` (or `useSaccadeStore.ts`) that executes this math natively inside the `injectLiveIntentVector` pipeline.
+
+```javascript
+import { create } from 'zustand';
+
+// RCMT v5.0 Physics & Density Constants
+const MAX_NODES = 8000; 
+const STRIDE = 7; // [x, y, z, r, g, b, scale]
+const GOLDEN_ANGLE = 137.508 * (Math.PI / 180); // 137.508 degrees in radians to prevent Pole Clustering
+const NODE_DENSITY_BUBBLE = 0.6; // Centrifugal spacing multiplier
+const Z_STRATA_MULTIPLIER = 5.0; // Scaled down to 5.0 for a visible local canvas
+
+export const useSaccadeStore = create((set, get) => {
+    // Note: The Web Worker instantiation is removed here, relying on 
+    // your existing SaccadeWorkerManager.ts bridge for O(1) file reads.
+
+    return {
+        activeFrameIndex: 0,
+        totalFrames: 0,
+        isLoaded: false,
+        mockFrames: [], 
+        vacantSlots: [], // FIFO queue tracking indexes reclaimed by the pruning engine
+
+        setVacantSlotRegistry: (prunedIndices) => {
+            set((state) => ({
+                vacantSlots: Array.from(new Set([...state.vacantSlots, ...prunedIndices]))
+            }));
+        },
+
+        // THE COLLISION ENGINE & REAL SPHERICAL FIBONACCI DISPERSION
+        injectLiveIntentVector: ({ slot, textLength, colorRGB }) => {
+            const { activeFrameIndex, mockFrames, vacantSlots } = get();
+            const currentFrameBuffer = mockFrames[activeFrameIndex];
+            
+            // 8k Kill-Switch: Halt injection if density cap is reached
+            if (!currentFrameBuffer || vacantSlots.length === 0) {
+                console.warn("MAX DENSITY RATIO REACHED. Awaiting pruning engine reclamation.");
+                return;
+            }
+            
+            // 1. Pop the oldest dead index to overwrite (O(1) VRAM recycle)
+            const targetIndex = vacantSlots.shift();
+
+            // 2. Safe-Zone Data Block Sizing with Dynamic Scale Cap
+            const safeScale = Math.min(0.15 + (textLength * 0.02), 1.5);
+
+            // 3. Real Spherical Fibonacci Lattice (3D x, y, z) + Foveated Radius
+            // The dynamic radius creates a dense center core and sparse outer rim
+            const radius = Math.sqrt(targetIndex) * NODE_DENSITY_BUBBLE;
+            
+            // phi distributes nodes vertically across the sphere's poles
+            const phi = Math.acos(1 - 2 * (targetIndex / MAX_NODES)); 
+            // theta uses the Golden Angle to spread nodes rotationally
+            const theta = targetIndex * GOLDEN_ANGLE;
+            
+            // Cartesian mapping from the spherical lattice
+            const x = radius * Math.sin(phi) * Math.cos(theta);
+            const y = radius * Math.sin(phi) * Math.sin(theta);
+            const zLocal = radius * Math.cos(phi);
+
+            // 4. Centered Orthogonal Z-Strata Separation
+            // Using (slot - 3) anchors the 5 strata layers evenly around the 0 origin 
+            // instead of pushing the entire tapestry exclusively into positive Z-space
+            const zIsolated = zLocal + ((slot - 3) * Z_STRATA_MULTIPLIER);
+
+            // 5. Defensive Color Parsing (Scalar Back-Compat)
+            // Prevents silent destructuring failures from writing NaN into VRAM
+            let r = 1, g = 1, b = 1;
+            if (colorRGB !== undefined) {
+                if (Array.isArray(colorRGB)) {
+                    [r, g, b] = colorRGB;
+                } else if (typeof colorRGB === 'object' && colorRGB !== null) {
+                    ({ r, g, b } = colorRGB);
+                } else {
+                    // Fallback branch if a scalar number is passed
+                    r = colorRGB;
+                    g = colorRGB;
+                    b = colorRGB;
+                }
+            }
+
+            // 6. Direct 28-Byte Binary Stride Mutation
+            const offset = targetIndex * STRIDE;
+            currentFrameBuffer[offset] = x;
+            currentFrameBuffer[offset + 1] = y;
+            currentFrameBuffer[offset + 2] = zIsolated;
+            currentFrameBuffer[offset + 3] = r; 
+            currentFrameBuffer[offset + 4] = g; 
+            currentFrameBuffer[offset + 5] = b; 
+            currentFrameBuffer[offset + 6] = safeScale;
+
+            // Re-sync the FIFO queue state so React knows the slot is taken
+            set({ vacantSlots: [...vacantSlots] });
+        },
+        
+        setFrameIndex: (index) => set({ activeFrameIndex: index })
+    };
+});
+```
+
+### The Architectural Math at Play:
+1. **The Foveated Core (`radius = Math.sqrt(targetIndex) * NODE_DENSITY_BUBBLE`)**: This maintains your specific request for volumetric density. Facts in Slot 1 remain densely packed at the origin $(0,0,0)$ to capture foveated attention, while Slot 5 dreams space out organically toward the rim.
+2. **The 3D Lattice (`phi = Math.acos(1 - 2 * (targetIndex / MAX_NODES))`)**: By mapping the index directly to an arccosine fraction of the 8,000 max capacity, nodes distribute cleanly around the Z-poles. Combined with the $137.508^\circ$ rotation (`theta`), this mathematically neutralizes the Pole Clustering knot anomaly across all 3 axes.
+3. **The Centered Z-Strata (`zLocal + (slot - 3) * Z_STRATA_MULTIPLIER`)**: This modifies the standard orthogonal isolation formula ($Z_{isolated} = S \cdot \Delta Z_{ceiling} + Z_{local}$) into a visually balanced array, keeping the strata bounds within the $-10$ to $+10$ coordinate frustum so your camera view remains centered.

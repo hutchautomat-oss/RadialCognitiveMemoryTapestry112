@@ -25,9 +25,11 @@ const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
 // TenSEAL packing — this 5.0 value is for the LOCAL 3D render only, so
 // strata are physically separated but stay inside the camera frustum.
 const Z_STRATA_VISUAL = 5.0;
-// Radius of the spherical lattice. Tuned to keep all 8000 points inside
-// the camera's near/far range with a comfortable margin.
-const LATTICE_RADIUS = 22.0;
+// Foveated density bubble multiplier — radius grows as sqrt(index) * BUBBLE,
+// so Slot-1 facts cluster at the high-density core (r≈0.6) while
+// Slot-5 dreams expand to the sparse periphery (r≈53.7 at index 8000).
+// This is the "Foveated Attention" mandate — a hollow shell would destroy it.
+const NODE_DENSITY_BUBBLE = 0.6;
 // Dynamic scale cap so a paragraph can't eclipse the foveated core.
 const MIN_SCALE = 0.15;
 const SCALE_PER_CHAR = 0.02;
@@ -226,11 +228,14 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       MAX_SCALE,
     );
 
-    // 3. True 3D Spherical Fibonacci position — kills the Knot Anomaly.
+    // 3. Foveated Spherical Fibonacci position — kills the Knot Anomaly
+    //    while preserving the "Foveated Attention" density gradient.
+    //    Radius grows as sqrt(index), so early slots cluster at the core.
+    const radius = Math.sqrt(targetIndex) * NODE_DENSITY_BUBBLE;
     const [sx, sy, sz] = sphericalFibonacci(targetIndex, MAX_NODES);
-    const x = sx * LATTICE_RADIUS;
-    const y = sy * LATTICE_RADIUS;
-    const zLattice = sz * LATTICE_RADIUS;
+    const x = sx * radius;
+    const y = sy * radius;
+    const zLattice = sz * radius;
 
     // 4. Orthogonal Z-Strata: visible separation between ontology tiers.
     // Centered on slot 3 (the median) so the foveated core stays near z=0.
