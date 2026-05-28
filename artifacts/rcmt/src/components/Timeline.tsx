@@ -1,21 +1,34 @@
 import { useRef, useCallback } from "react";
 import { useStore } from "../store/useStore";
+import { useSaccadeStore } from "../store/useSaccadeStore";
 
 export function Timeline() {
-  const timelinePos = useStore((s) => s.timelinePos);
-  const setTimelinePos = useStore((s) => s.setTimelinePos);
-  const snapshots = useStore((s) => s.snapshots);
-  const nodes = useStore((s) => s.nodes);
   const trackRef = useRef<HTMLDivElement>(null);
+
+  // Saccade store (frame-based scrubbing)
+  const activeFrameIndex = useSaccadeStore((s) => s.activeFrameIndex);
+  const totalFrames      = useSaccadeStore((s) => s.totalFrames);
+  const setFrameIndex    = useSaccadeStore((s) => s.setFrameIndex);
+  const isFileLoaded     = useSaccadeStore((s) => s.isFileLoaded);
+
+  // Live store (fallback when no binary file)
+  const snapshots        = useStore((s) => s.snapshots);
+  const nodes            = useStore((s) => s.nodes);
+
+  // Unified timeline position (0–1)
+  const effectiveTotal = isFileLoaded ? totalFrames : Math.max(1, snapshots.length);
+  const effectiveIndex = activeFrameIndex;
+  const timelinePos    = effectiveTotal > 1 ? effectiveIndex / (effectiveTotal - 1) : 1;
 
   const seek = useCallback(
     (clientX: number) => {
       if (!trackRef.current) return;
       const rect = trackRef.current.getBoundingClientRect();
       const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      setTimelinePos(ratio);
+      const targetFrame = Math.round(ratio * (effectiveTotal - 1));
+      setFrameIndex(targetFrame);
     },
-    [setTimelinePos],
+    [effectiveTotal, setFrameIndex],
   );
 
   function onMouseDown(e: React.MouseEvent) {
@@ -40,22 +53,23 @@ export function Timeline() {
     window.addEventListener("touchend", onEnd);
   }
 
-  // Format timestamp for display
-  const earliest = snapshots[0]?.timestamp;
-  const latest = snapshots[snapshots.length - 1]?.timestamp;
-  const currentTs = earliest
-    ? earliest + (latest - earliest) * timelinePos
-    : Date.now();
-
-  function formatTime(ts: number) {
-    const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  }
-
   const pct = Math.round(timelinePos * 100);
+
+  // Drop-zone for .bin file loading
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const { loadFile, initWorker, workerReady } = useSaccadeStore.getState();
+    if (!workerReady) initWorker();
+    loadFile(file);
+  }
+  function onDragOver(e: React.DragEvent) { e.preventDefault(); }
 
   return (
     <div
+      onDrop={onDrop}
+      onDragOver={onDragOver}
       style={{
         position: "fixed",
         bottom: 0,
@@ -85,12 +99,16 @@ export function Timeline() {
           ⟪ SACCADE TIMELINE PLAYBACK
         </span>
         <span>
-          <span style={{ color: "#ffffff40" }}>{nodes.length} NODES  •  </span>
-          <span style={{ color: "#00ff41" }}>T+{pct}%</span>
-          <span style={{ color: "#ffffff40" }}>  {snapshots.length} snapshots</span>
+          <span style={{ color: "#ffffff40" }}>
+            {nodes.length} NODES  •  frame {effectiveIndex + 1}/{effectiveTotal}  •{" "}
+          </span>
+          <span style={{ color: isFileLoaded ? "#ff8800" : "#00ff41" }}>
+            {isFileLoaded ? "BINARY FILE" : "LIVE"}
+          </span>
+          <span style={{ color: "#ffffff40" }}>  T+{pct}%</span>
         </span>
-        <span style={{ color: "#00ffff80" }}>
-          {formatTime(currentTs)} ⟫
+        <span style={{ color: "#00ffff50", fontSize: 9 }}>
+          DROP .bin TO LOAD ⟫
         </span>
       </div>
 
@@ -120,21 +138,20 @@ export function Timeline() {
           }}
         />
 
-        {/* Snapshot tick marks */}
-        {snapshots.map((snap, i) => {
-          const tickPct =
-            snapshots.length > 1 ? i / (snapshots.length - 1) : 0;
+        {/* Snapshot ticks */}
+        {Array.from({ length: Math.min(effectiveTotal, 100) }).map((_, i) => {
+          const tickPct = effectiveTotal > 1 ? i / (Math.min(effectiveTotal, 100) - 1) : 0;
           return (
             <div
-              key={snap.timestamp}
+              key={i}
               style={{
                 position: "absolute",
                 top: "50%",
                 left: `${tickPct * 100}%`,
                 width: 1,
-                height: 8,
+                height: 6,
                 transform: "translate(-50%, -50%)",
-                background: "#00ffff30",
+                background: "#00ffff25",
               }}
             />
           );
@@ -165,9 +182,11 @@ export function Timeline() {
             height: 14,
             transform: "translate(-50%, -50%)",
             background: "#000",
-            border: "2px solid #00ffff",
+            border: `2px solid ${isFileLoaded ? "#ff8800" : "#00ffff"}`,
             borderRadius: "50%",
-            boxShadow: "0 0 10px #00ffff, 0 0 20px #00ffff60",
+            boxShadow: isFileLoaded
+              ? "0 0 10px #ff8800, 0 0 20px #ff880060"
+              : "0 0 10px #00ffff, 0 0 20px #00ffff60",
             cursor: "grab",
           }}
         />
@@ -184,7 +203,7 @@ export function Timeline() {
         }}
       >
         <span>GENESIS</span>
-        <span style={{ color: "#00ffff40" }}>◀ SCRUB ▶</span>
+        <span style={{ color: "#00ffff30" }}>◀ SCRUB ▶</span>
         <span>NOW</span>
       </div>
     </div>
