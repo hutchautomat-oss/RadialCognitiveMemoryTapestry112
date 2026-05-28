@@ -10,6 +10,7 @@ import {
   EventStream,
   Invariants,
   CameraReadout,
+  TelemetryBar,
 } from "./components/hud";
 import { NetworkManager } from "./network/NetworkManager";
 import { OnnxWorker } from "./workers/OnnxWorkerManager";
@@ -121,23 +122,25 @@ export default function App() {
         fontFamily: FONT,
       }}
     >
-      {/* 3D Canvas */}
-      <WebGLErrorBoundary>
-        <Canvas
-          gl={{ antialias: true, alpha: false }}
-          camera={{ position: [0, 25, 95], fov: 60, near: 0.1, far: 500 }}
-          style={{ position: "absolute", inset: 0 }}
-          onCreated={({ gl }) => {
-            gl.setClearColor(COLOR.bgSolid, 1);
-          }}
-        >
-          <Suspense fallback={null}>
-            <Scene />
-          </Suspense>
-        </Canvas>
-      </WebGLErrorBoundary>
-
-      <Suspense fallback={<LoadingOverlay />} />
+      {/* 3D Canvas — outer DOM-level Suspense shows the loading overlay
+          until the lazy 3D subtree resolves; the inner R3F Suspense uses
+          a null fallback because its children render inside WebGL, not DOM. */}
+      <Suspense fallback={<LoadingOverlay />}>
+        <WebGLErrorBoundary>
+          <Canvas
+            gl={{ antialias: true, alpha: false }}
+            camera={{ position: [0, 25, 95], fov: 60, near: 0.1, far: 500 }}
+            style={{ position: "absolute", inset: 0 }}
+            onCreated={({ gl }) => {
+              gl.setClearColor(COLOR.bgSolid, 1);
+            }}
+          >
+            <Suspense fallback={null}>
+              <Scene />
+            </Suspense>
+          </Canvas>
+        </WebGLErrorBoundary>
+      </Suspense>
 
       {/* Aerospace telemetry HUD */}
       <Invariants />
@@ -146,6 +149,7 @@ export default function App() {
       <CameraReadout />
       <EventStream />
       <CommandConsole />
+      <TelemetryBar />
       <Timeline />
 
       {/* Invisible: drives autonomous thought loop. */}

@@ -34,6 +34,7 @@ import { BufferAttribute, BufferGeometry } from "three";
 import { MeshBVH } from "three-mesh-bvh";
 import { SaccadeWorker } from "../workers/SaccadeWorkerManager";
 import type { RCMTNode } from "./useStore";
+import { pushHudEvent } from "./useHudStore";
 
 export const MAX_NODES = 8000;
 export const STRIDE = 7;
@@ -686,6 +687,20 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     }
 
     if (pruned.length === 0) return;
+
+    // Emit one EVICT(reason=lowHealth) per evaporated slot so the event ring
+    // reflects the full lifecycle. The tier-full eviction path (in
+    // injectLiveIntentVector → injectPhrase) emits reason=tierFull; together
+    // these are the only two ways a slot leaves the lattice.
+    for (const idx of pruned) {
+      const tier = slotTier[idx];
+      pushHudEvent({
+        type: "EVICT",
+        slot: idx,
+        tier,
+        detail: `vram[${idx}] tier ${tier} · reason=lowHealth (decay below threshold)`,
+      });
+    }
 
     // Route evaporated slots back to their tier FIFOs.
     set((s) => {
