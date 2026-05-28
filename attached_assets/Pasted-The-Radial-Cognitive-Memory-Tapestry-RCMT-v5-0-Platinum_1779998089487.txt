@@ -1,0 +1,38 @@
+The Radial Cognitive Memory Tapestry (RCMT) v5.0 Platinum Sovereign Monolith is an end-to-end 5-dimensional topological memory visualization engine designed to eliminate sequential text-retrieval middleware and the $O(N^2)$ quadratic attention penalty. By converting memory into a continuous spatial geometric landscape, Vision-Language Models (VLMs) process the data via Context Optical Compression, condensing 1,000 text tokens into 100 vision tokens for simultaneous native convolutional ingestion. 
+
+**1. The 5-Dimensional Intent-State Ontology**
+Data is routed to spatial zones bypassing linguistic tags, governed by the maxim "The closer to fact, the closer to act".
+*   **Slot 1 (Center Core):** Houses irreducible, binary empirical data and system executions at $(0,0,Z_{max})$.
+*   **Slot 2 (Inner Branches):** Calculates the Scenario vs. Reality Delta, determining the variance between plans and empirical outcomes to insulate against hallucinations.
+*   **Slot 3 (Mid-Layer):** Tracks successes, failures, and pass-fail metrics serving as an empirical feedback loop for reinforcement learning.
+*   **Slot 4 (Outer Branches):** Contains unverified roadmaps, theories, and time-bound strategic plans.
+*   **Slot 5 (Outer Rim):** Abstract ideas, beliefs, and dreams pushed to the peripheral bounds ($R \to \infty$) without draining processing core RAM.
+
+**2. Mathematical Topology and Collision Physics**
+To prevent a catastrophic "Visual Crowding Knot" (Pole Clustering) at the origin, the system computes an offset Spherical Fibonacci Lattice (Phyllotaxis). Successive nodes are rotated by the Golden Angle ($\approx 137.508^\circ$), derived from the Golden Ratio ($\Phi \approx 1.618$), to maximize nearest-neighbor distances and permanently neutralize overlaps. An epsilon ($\varepsilon$) boundary correction factor shifts nodes slightly away from the polar extremities based on the total node count. 
+
+The visual sphere enforces a strict hard cap of 8,000 concurrent nodes to prevent a 10,000-token total model collapse. Node volume is dynamically mapped to a `safe_radius` calculated from token length, adhering to the 10x Context Optical Compression rule. The `NODE_DENSITY_BUBBLE` enforces radial repulsion fields, triggering centrifugal mutations into outer concentric shells if distance drops below a minimum threshold.
+
+**3. Render Engine and $\mathcal{O}(1)$ Sink (Phase 2.1)**
+To maintain a locked 60Hz/144Hz framerate, standard React DOM reconciliation is completely bypassed. Rendering is exclusively executed via a React-Three-Fiber (R3F) `InstancedMesh` operating on a strict 1-draw-call mandate. The system writes a 28-byte binary stride (7 Float32 values: `[x, y, z, r, g, b, scale]`) directly into the GPU VRAM array attributes inside the `useFrame` render loop. 
+
+To perform $\mathcal{O}(\log N)$ spatial indexing during Lasso Isolation Patches or Vector Tugs without crashing the main thread, a Bounding Volume Hierarchy (BVH) is constructed using `three-mesh-bvh`, generating invisible proxy triangles mapped 1:1 with VRAM instance IDs.
+
+A Real-Time Memory Pruning Engine maintains the 8,000-node equilibrium by continuously applying an exponential time-decay equation: $Health(t) = Health(0) \cdot e^{-\lambda t}$. When a node's health drops below the 0.2 threshold, its scale byte is overwritten to 0.0, its timestamp register is reset to -1.0, and its index is recycled via a FIFO `vacantSlots` queue inside the Zustand `store.js` state manager.
+
+**4. Local Ingestion and Neural Execution (Phase 2.2)**
+A zero-network `tokenizer.js` engine (WordPiece/BPE) parses user slang and encodes it into padded 128-element tensor arrays entirely on-device. A dedicated background worker (`onnxInference.worker.js`) runs a quantized `all-MiniLM-L6-v2` intent classifier to achieve a sub-5ms latency floor. This worker dynamically prioritizes a WebGPU execution adapter but safely fails over to a 4-core multi-threaded WebAssembly (WASM) engine if GPU access is blocked. To prevent shader compilation stutter on the first user input, the worker pre-warms the execution lanes by passing a zero-filled dummy matrix tensor sequence during the splash screen.
+
+**5. Local Storage and Binary Retrieval**
+Append-only sequential binary streams (`sovereign_save_key.bin`) replace parsed JSON arrays. A dedicated `saccadeIndexer.worker.js` Web Worker memory-maps fixed 224,000-byte frame structures, enabling instant $\mathcal{O}(1)$ byte-offset lookups for timeline scrubbing without blocking the UI thread.
+
+**6. Cryptographic Cloud Aggregation (Phase 2.3)**
+Multi-tenant cloud scaling averts cross-tenant spatial hallucinations (e.g., User A's Fact colliding with User B's Dream) using Orthogonal Z-Strata Separation. The 5D slots are mathematically isolated along the Z-axis via $Z_{isolated} = (S \times 10,000.0) + Z_{local}$, establishing an absolute minimum 40,000-unit cryptographic gap. Flat floating-point arrays are packed into single CKKS polynomials using the TenSEAL wrapper. The cloud server performs blind SIMD homomorphic additions using a plaintext Kronecker Delta Masking Filter ($\delta$), compiling matching density hotspots while mathematically zeroing unmatched strata noise.
+
+**7. Collaborative Network Synchronization (Phase 4)**
+Distributed State Collision Anomalies—where concurrent users claim the same vacant index slot—are resolved via a decentralized Conflict-Free Reclaimed Vector Matrix (CRVM). The transport layer requires Binary WebSockets (`ws`) utilizing ArrayBuffers and 32-byte Delta-Encoded Frames to eliminate JSON string-parsing overhead. 
+
+Index conflicts are resolved by a Distributed LWW-Element-Set (Last-Write-Wins) Index Bitmask Vector. Every network claim carries a 64-bit Composite Clock (48-bit physical timestamp + 16-bit Peer ID tiebreaker). If a collision occurs, the server applies a lexicographical merge (`Target = max(Incoming, Local)`), assigning the slot to the higher timestamp and broadcasting a `REJECT` opcode to the loser, which triggers an automated client "re-roll" shifting to the next free FIFO index. Remote Saccade Playback synchronization is handled through Ephemeral Ghost Viewport Arrays via transient Zustand slices, rendering peer scrubs as low-opacity meshes to preserve local VRAM matrices.
+
+**8. Replit Monolith Deployment Chassis**
+To survive the Replit security sandbox, the architecture requires a Vite Proxy Bridge. `vite.config.js` is configured to intercept `/socket` requests and tunnel them to the internal Node backend at `ws://0.0.0.0:8080`, bypassing the browser's SSL "Mixed Content" block. The backend `sync_server.js` must strictly bind to `0.0.0.0` to remain visible inside the container environment. A dual-engine `concurrently` script declared in `package.json` synchronizes the boot of the Node server and the Vite frontend into a single runtime command.
