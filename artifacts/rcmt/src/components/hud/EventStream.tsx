@@ -36,12 +36,25 @@ export function EventStream() {
   }, [events]);
 
   return (
-    <div style={{ ...cardShell, bottom: 96, right: 14, width: 380, maxHeight: 320 }}>
+    <div
+      style={{
+        ...cardShell,
+        bottom: 96,
+        right: 14,
+        width: 380,
+        // Cap below the Ontology card's footprint (top:14 + ~220px tall) plus
+        // a 12px gutter so the two never collide in a short viewport — the
+        // canvas iframe runs ~557px tall, which used to overlap by ~50px.
+        maxHeight: "min(320px, calc(100vh - 96px - 246px))",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <div style={cardHeader}>
         <span>EVENT STREAM</span>
         <span style={{ color: COLOR.textMuted }}>{events.length}/500</span>
       </div>
-      <div style={{ ...cardBody, maxHeight: 282, overflowY: "auto" }}>
+      <div style={{ ...cardBody, flex: 1, minHeight: 0, overflowY: "auto" }}>
         {recent.length === 0 ? (
           <div style={{ color: COLOR.textMuted, fontSize: 10 }}>
             awaiting first event…

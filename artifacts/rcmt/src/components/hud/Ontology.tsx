@@ -46,7 +46,18 @@ export function Ontology() {
   const totalOccupied = tierCounts.reduce((a, b) => a + b, 0);
 
   return (
-    <div style={{ ...cardShell, top: 14, right: 14, width: 300 }}>
+    <div
+      style={{
+        ...cardShell,
+        top: 14,
+        right: 14,
+        width: 300,
+        // Hard cap so a future addition of a 6th tier (or padding drift) can't
+        // push the card down into the EventStream below it.
+        maxHeight: 220,
+        overflow: "hidden",
+      }}
+    >
       <div style={cardHeader}>
         <span>ONTOLOGY</span>
         <span style={{ color: COLOR.textMuted }}>{totalOccupied}/8000</span>

@@ -259,7 +259,17 @@ export function CommandConsole() {
   const ticker = useHudStore((s) => s.ticker);
 
   return (
-    <div style={{ ...cardShell, bottom: 96, left: 290, width: 460 }}>
+    <div
+      style={{
+        ...cardShell,
+        bottom: 96,
+        left: 290,
+        // Shrink to fit when the viewport narrows so it never collides with
+        // the EventStream's left edge (which sits at right:14 + width:380).
+        width: "min(460px, calc(100vw - 290px - 14px - 380px - 14px - 12px))",
+        minWidth: 320,
+      }}
+    >
       <div style={cardHeader}>
         <span>COMMAND CONSOLE</span>
         <span style={{ color: COLOR.textMuted, fontSize: 9 }}>
