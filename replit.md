@@ -1,6 +1,38 @@
 # RCMT Platinum Monolith — Radial Cognitive Memory Tapestry
 
-A sovereign, append-only, peer-merged cognitive memory engine. Stores meaning as positions in a 3D foveated lattice instead of as high-dimensional embeddings — roughly 100× denser than a conventional vector database (224 KB carries an 8,000-node tapestry). Designed so that another AI loading the binary inherits an entire memory hierarchy, not a flat ring-buffer.
+## Vision
+
+RCMT is an **optical-compression grounding substrate** for downstream AI consumers. Instead of storing meaning as high-dimensional embeddings in a vector database, it stores meaning as **positions in a 3D foveated lattice** that a vision-capable model reads the same way a human eye reads a scene — **foveally**: dense, high-confidence regions first, sparse peripheral regions as context. The Fact→Dream tier gradient encodes a **scientific-method epistemology** directly into the geometry: irreducible Facts sit at the dense core (highest foveal weight), speculative Dreams disperse to the sparse rim (lowest). A model scanning the lattice inherits the epistemic prior for free — the shape *is* the meaning.
+
+The whole 8,000-slot tapestry fits in **224 KB on the wire** and is byte-stable across model upgrades because no embedding lives in the substrate. Conventional RAG drifts when re-embedded; RCMT cannot drift, because positions are deterministic from slot index + insertion order. Capacity is constant by construction (8,000 slots forever), so the binary doesn't bloat over a year of use. Six runtime invariants and a vitest tripwire suite physically prevent the wire format from changing — drift is observable, not silent.
+
+This is meant to behave like a brain's visual cortex reading a memory hierarchy: dense, append-only, peer-mergeable, picked up mid-thought by any agent that loads the binary.
+
+## Positioning
+
+RCMT is a **licensable product**, not OSS. Two buyer tiers:
+
+- **Primary — frontier AI labs (Anthropic / OpenAI / DeepMind / similar).** A research or applied engineer evaluating a grounding substrate for their own model. The product hypothesis: *frontier labs need a grounding mechanism that isn't a vector DB (drifts on re-embed, bloats unboundedly) and isn't a retraining loop (slow, expensive, opaque)*. RCMT is a third option — a position-as-meaning substrate that ships as a 224 KB binary, scans foveally, and physically cannot drift.
+- **Secondary — individual AI devs and indie researchers.** A consumer tier of the same product for personal sovereign grounding experiments.
+
+Both tiers buy the same artifact. Pricing, licensing terms, and distribution mechanics are real concerns but **out of scope for this document** — they will be handled separately.
+
+The downstream **consumer of the substrate** is always a VLM / multimodal AI doing foveal scanning of the rendered lattice. The product is the substrate, not the UI; the UI exists to demonstrate the substrate to evaluators.
+
+For the human-readable concept breakdown, see [`docs/`](./docs/).
+
+## Confirmed wire-format invariants
+
+These four facts are non-negotiable. Every one is defended by a vitest tripwire in `artifacts/api-server/src/lib/lww.test.ts`. NotebookLM-style pastes have repeatedly tried to "upgrade" the wire format in ways that would break all four; do not accept such changes without rewriting the tripwires and explaining why in this section.
+
+- **28-byte CRVM packet.** Pinned by `lww.test.ts` ("STRIDE_BYTES is 28"). A 32-byte stride (e.g. + u32 peerId) would fail.
+  *Why:* Eight bytes of every packet are the LWW timestamp; the other 20 carry slot + intent + position + scale. Anything else doesn't fit and breaks byte-stable replay.
+- **No embedded peerId.** Pinned by the "packet has NO embedded peerId / composite-clock field" tripwire. The server assigns a peerId over a JSON HELLO frame on connect and prevents self-echoes structurally by excluding the sender from each broadcast.
+  *Why:* A per-packet peerId is wire bloat *and* a security/identity coupling the protocol intentionally avoids — the server arbitrates, not the packets.
+- **No composite clock.** Same tripwire. The timestamp is a plain Float64 (ms since epoch), not split into "48-bit physical + 16-bit peer-ID tiebreaker."
+  *Why:* The server is the single arbiter, so a vector clock or composite clock buys nothing and breaks the byte layout.
+- **Single Float64 LWW timestamp.** Strictly-greater wins; equal timestamps drop. Pinned by `processPacketBatch` tests.
+  *Why:* This is the entire arbitration policy. Any tie-breaker beyond strict-greater requires re-examining replay semantics.
 
 ## Run & Operate
 
@@ -134,3 +166,5 @@ Aerospace EFIS palette — `bg rgba(8,10,12,0.88)`, `border #2a3338`, `text #c6c
 
 - Audit NotebookLM pastes against the current codebase before applying. They are useful spec drafts but have shipped real bugs in the past (e.g. a `vacantSlots` dedup that collapsed FIFO ordering; a `THREE.Frustum`-based lasso that can't represent a polygon). Never paste a code block from `attached_assets/` verbatim without verifying it against the actual files.
 - Keep architectural decisions in this file as they're made, not in scattered chat history.
+- **When reviewing protocol-adjacent NotebookLM pastes, state the four wire-format invariants explicitly up front** (28-byte packet, no embedded peerId, no composite clock, single Float64 LWW timestamp). These four claims keep getting "upgraded" in pastes; surface them as a checklist before triaging any other claim in the paste so the comparison is unambiguous.
+- **Treat the vision as load-bearing intent, not commentary.** The optical-compression / foveal-VLM-consumer framing and the Fact→Dream scientific-method tier epistemology are the *reason* the geometry is shaped the way it is. NotebookLM elaborations of the vision should be evaluated as vision elaborations (do they sharpen the framing? do they suggest a real roadmap item?) rather than dismissed as drift just because they don't already appear in code. The wire-format invariants above are the hard line; the vision is the soft anchor — both are protected.

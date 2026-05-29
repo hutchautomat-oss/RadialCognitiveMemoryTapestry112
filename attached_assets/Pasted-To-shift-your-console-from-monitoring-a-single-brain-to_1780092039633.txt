@@ -1,0 +1,58 @@
+To shift your console from monitoring a single brain to orchestrating a "constellation" of independent brains, you must borrow from domains designed for continuous, high-stakes oversight.
+Below are concrete conventions extracted from aerospace and multi-entity operations, ranked by their usefulness for your 3D lattice UI, along with where to avoid cargo-culting them.
+## 1. Aerospace Attention/Alarm Philosophy
+When an aircraft enters a non-normal but acceptable state (like a temporarily inoperative piece of equipment) without requiring pilot intervention, aerospace uses specific conventions to prevent desensitization and alert fatigue. [1, 2] 
+
+* Use it (Rank 1): Alarm Inhibition by System/Phase
+* The Convention: Modern aircraft (e.g., the Airbus A350 ECAM or Boeing 787 EICAS) suppress entire categories of warnings or downgrade them to status-only depending on the flight phase. If the landing gear is retracted, take-off configuration alarms are inhibited. [3] 
+* Application to You: Implement dynamic filtering based on the constellation's current "focus state" or mode. If a brain is intentionally executing a pruning cycle, logs and invariants relevant to that pruning should be suppressed or dimmed. Let the operator choose their primary mode (e.g., Active Problem Solving, Passive Observation), and dynamically hide the noise. [4, 5] 
+* Use it (Rank 2): Master Warning/Caution "Boxing" for Known-Degraded States
+* The Convention: In Boeing EICAS, when an advisory or caution message is persistent (e.g., a known-degraded but acceptable system), the pilot can press an acknowledge button to "box" or clear the alert from the primary flashing attention-getter. It drops to the bottom of the stack on the Status Page, clearing the visual field. [4, 6] 
+* Application to You: Handle your "red parity" invariant by forcing a manual "Acknowledge" sequence that physically relocates the warning. Remove it from the INVARIANTS strip—where it triggers fight-or-flight—and box it in a secondary "Known Issues" registry. The strip remains dark/clear until a new invariant fails.
+* Cargo-Cult It: The "Dark Cockpit" Principle
+* The Convention: In transport category aircraft, a perfectly operating system displays no lights; only abnormalities illuminate.
+* Why it's cargo-cult for you: A "dark cockpit" relies on a pilot's intuitive, out-the-window visual map. In your interface, the operator relies purely on synthetic visual data. A completely "dark" 3D lattice and renderer would leave the operator blind about whether the system is idling or crashed.
+
+## 2. Multi-Entity Situational Awareness
+To monitor a constellation of many brains and their relationships, you must borrow from systems designed to represent dynamic environments, tracks, and engagement spaces. [7] 
+
+* Use it (Rank 1): Speed Leaders and Vectors
+* The Convention: In NATO STANAG 4420 / MIL-STD-2525 and naval Combat Information Centers (CIC), a moving contact has a line projecting from it called a "speed leader". The length represents speed; the direction indicates heading.
+* Application to You: When looking at the constellation of brains, represent their trajectory through the epistemic tiers using directional vectors. If a brain is rapidly speculating, a "speed leader" pulling toward the speculative Dream rim immediately communicates the cognitive trajectory of the AI, rather than forcing the operator to read a log.
+* Use it (Rank 2): The Stack & Hook
+* The Convention: AEGIS Combat System consoles display dozens of tracks simultaneously. To prevent clutter, operators see basic, monochrome shapes that signify affiliation (friendly/hostile) and domain (air/surface). To see granular parameters, the operator "hooks" (clicks) the track, causing a secondary data readout to appear on a separate portion of the glass.
+* Application to You: Do not try to display dense memory arrays (ontology, occupancy bars, renderer) for all 50 brains simultaneously. Instead, show the constellation as a graph of minimal nodes (e.g., small circles or icons). Let the user "hook" a specific brain node to pull its dense 3D lattice, SYNC CORE, and ONTOLOGY data into an overlay or side-panel.
+* Use it (Rank 3): Pair/Association Lines
+* The Convention: In multi-vehicle displays and radar scope readouts, related objects or entities engaged in an action are connected by thin, dashed association lines.
+* Application to You: In your multi-brain constellation view, use dynamic, low-chroma lines to physically connect brains that are sharing data, collaborating on a thought, or have synchronous epistemic states.
+* Cargo-Cult It: 1:1 Naval Realistic Icons
+* The Convention: Some advanced systems attempt to replace basic shapes with literal 3D models or icons of ships and planes.
+* Why it's cargo-cult for you: Using realistic avatars or rich icons causes visual clutter on dense tactical screens. Because your brains are highly abstract entities (memory substrates), stick to standardized NTDS-style geometric shapes where variation is based strictly on functional states (e.g., an idling brain, a loading brain, a desynced brain), not decorative flair. [7, 8, 9, 10, 11, 12, 13] 
+
+## How to apply this to your UI elements:
+
+   1. EVENT STREAM: Abandon the raw, scrolling log ring. It triggers visual noise and bypasses operator control. Instead, turn it into an EICAS/ECAM-style message center where alerts are prioritized, color-coded, and stackable.
+   2. INVARIANTS strip: Red should strictly mean Action Required Now, not "Deformation acknowledged". The degraded parity invariant should be boxed, removed from the top-center strip, and relegated to a deferred status list.
+   3. SACCADE TIMELINE: In the aerospace world, timeline scrubbing is a playback function (e.g., looking at a flight data recorder). If you keep it as an active-state scrubber, ensure it functions like a multi-entity track history, letting the operator go backward in time to see how a constellation diverged. [1, 4, 5, 6] 
+
+If you'd like to narrow this down, I can help you:
+
+* Draft the exact layout of the new multi-brain constellation node map.
+* Determine the shape and color coding based on the epistemic state of individual brains.
+* Design the "hook" interaction panel for inspecting a single brain.
+
+Let me know which part of the new constellation view you'd like to sketch out next.
+
+[1] [https://www.aeroclass.org](https://www.aeroclass.org/eicas/)
+[2] [https://www.facebook.com](https://www.facebook.com/groups/940132316134338/posts/3209681152512765/)
+[3] [https://www.facebook.com](https://www.facebook.com/AVIO.KNOWLEDGE/posts/engine-indication-crew-alerting-system-eicasecam-full-breakdown-see-the-generate/1460387339461084/)
+[4] [https://www.scribd.com](https://www.scribd.com/document/335190447/ATPL-Inst-8-8-pdf)
+[5] [https://hibdz.skydiving.co.uk](http://hibdz.skydiving.co.uk/757/767_tech/warning_systems/eicas.htm)
+[6] [https://quizlet.com](https://quizlet.com/440665353/eicaslightingoxygen-flash-cards/)
+[7] [https://apps.dtic.mil](https://apps.dtic.mil/sti/tr/pdf/ADA198949.pdf)
+[8] [https://quicksearch.dla.mil](https://quicksearch.dla.mil/ImageRedirector.aspx?token=484242.114934)
+[9] [https://www.scribd.com](https://www.scribd.com/document/943241700/Implementing-MIL-STD-2525B-Tactical-Symbology)
+[10] [https://faculty.nps.edu](https://faculty.nps.edu/ncrowe/oldstudents/calfeepap.htm)
+[11] [https://journals.sagepub.com](https://journals.sagepub.com/doi/pdf/10.1518/107118192786749784)
+[12] [https://www.reddit.com](https://www.reddit.com/r/navy/comments/27y6i9/are_there_any_non_text_symbols_well_images_for/)
+[13] [https://www.researchgate.net](https://www.researchgate.net/publication/235026518_Evaluation_of_Symbol_Sets_for_Naval_Tactical_Displays)

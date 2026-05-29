@@ -1,0 +1,50 @@
+## Core Vulnerabilities and Mitigation Architecture
+The Radial Cognitive Memory Tapestry (RCMT) replaces fluid high-dimensional embedding spaces with a static, foveated 3D lattice [1]. While this layout solves vector drift and reduces wire weight to 224 KB, it introduces severe architectural liabilities in collision handling, geometric routing, and visual context extraction.
+------------------------------
+## 1. Geometric & Information Theory Bottlenecks## Slot Exhaustion and the Spatial Allocation Bottleneck
+
+* The Flaw: A fixed 8,000-slot sphere creates an immutable memory ceiling. In high-velocity data streams, the dense "Fact" core will saturate immediately. Because positions are frozen forever, the system lacks an eviction or re-balancing mechanism.
+* The Consequence: Once a tier fills up, the system must either drop new high-trust data or leak it into adjacent structural tiers (e.g., forcing a Fact into a Scenario slot), breaking the epistemic geometry.
+* The Experiment: Flood the client with 15,000 high-confidence entities over 10 minutes. Measure the semantic degradation of the rendered image when core facts spill into the sparse rim.
+* The Polymath Fix: Implement an information-theoretic decay and compaction cycle. Instead of freezing slots forever, treat the 8,000 slots as a spatial cache. When a tier approaches saturation, run a local structural compression pass: merge collinear, highly redundant points into a single coordinate node, scaling its visual footprint (brightness/scale) to reflect cumulative weight while freeing sub-slots.
+
+## Fixed Fibonacci Spiral vs. Semantic Clustered Topology
+
+* The Flaw: Index-based golden-angle Fibonacci mapping ignores semantic proximity. Two highly related concepts arriving at different times will land in wildly different positions based purely on arrival order.
+* The Consequence: The VLM cannot use spatial locality to infer conceptual relationships, forcing it to hunt across the entire visual field to link related ideas.
+* The Experiment: Input 100 related medical terms separated by 500 unrelated entries. Quantify the VLM's attention-head dispersion across the image coordinates when answering a query requiring synthesis of those medical terms.
+* The Polymath Fix: Replace the arrival-time index function with a Hilbert curve routing matrix mapped across the 5 epistemic tiers. Use an ultra-lightweight, local deterministic hash of the local text classification to route entries to local spatial neighborhoods within their assigned tier, ensuring arrival-time independence.
+
+------------------------------
+## 2. Networking & State Synchronization Risks## Last-Writer-Wins (LWW) Binary Collisions
+
+* The Flaw: Relying on 28-byte LWW packets server-arbitrated for state synchronization creates split-brain scenarios in collaborative or multi-device environments.
+* The Consequence: If Peer A and Peer B update Slot 400 simultaneously, the server drops one update completely. Because slots are hard-assigned to specific data points, dropping an update erases an entire memory unit without a trace.
+* The Experiment: Simulate 100 concurrent edge nodes writing to the same slot range over a high-latency network (200ms variance). Measure the rate of unrecoverable data loss.
+* The Polymath Fix: Transition the 28-byte packet structure to a State-Based Conflict-Free Replicated Data Type (CRDT) footprint. Dedicate bits within the packet to encode a vector clock and an explicit logical operational tombstone, allowing concurrent slot mutations to resolve deterministically without data deletion.
+
+------------------------------
+## 3. Perception & VLM Interface Failures## Optical Foveation vs. Transformer Attention Mechanics
+
+* The Flaw: The assumption that a VLM will read a dense core and sparse rim the way a human eye processes a foveated visual field is unproven. VLMs process images via fixed patch tokens (e.g., 14x14 pixel grids) and global self-attention, not saccadic eye movements.
+* The Consequence: A pixel-dense core results in extreme token aliasing, where multiple text points blur into a single image patch. Meanwhile, the sparse rim wastes valuable patch tokens on blank space.
+* The Experiment: Render an RCMT state with maximum core density. Run it through a standard vision encoder (e.g., CLIP, SigLIP) and measure the reconstruction fidelity of the core data text from the output image tokens.
+* The Polymath Fix: Optimize the visual rendering pipeline specifically for ViT patch boundaries. Align the epistemic boundaries with the exact grid coordinates of the target VLM's patch size (e.g., mapping the dense core exactly to the central $4 \times 4$ patch grid). Use high-contrast color-space coding (chromatic separation) instead of relying purely on spatial proximity to prevent signal blending during patch tokenization.
+
+------------------------------
+## Technical Evaluation Summary
+
+| Subsystem | Stated Claim | Critical Failure Mode | Required Proof |
+|---|---|---|---|
+| Storage Geometry | 8k deterministic slots | Core saturation & semantic fragmentation | 15k entry overflow stress test |
+| Sync Protocol | 28-byte LWW packets | Silent data loss under race conditions | High-concurrency network simulation |
+| VLM Consumption | Optical compression | Token aliasing & patch blurring | Image-to-text token reconstruction test |
+
+------------------------------
+To evaluate how to move forward with this architecture, please clarify:
+
+* What is the exact vision model architecture (e.g., ViT-H, SigLIP) and patch size intended for production deployment?
+* What is the maximum concurrent peer count expected to write to a single tapestry simultaneously?
+* Should we prioritize expanding the slot capacity beyond 8,000, or optimizing the compaction algorithm to fit within the 224 KB footprint?
+
+
