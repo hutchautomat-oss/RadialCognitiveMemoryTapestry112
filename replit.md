@@ -136,6 +136,7 @@ Two notes worth keeping inline because they are decisions, not status:
 
 ## Pointers
 
+- **IP / protection boundary** (four-bucket asset map + no-tricks doctrine): [`docs/protection-boundary.md`](./docs/protection-boundary.md). Tuned "secret-sauce" values sit behind a seam in `artifacts/rcmt/src/lib/calibration.ts`; buyer-facing orientation is [`docs/cliffsnotes.md`](./docs/cliffsnotes.md); NDA-only knowledge is `docs/internal/`.
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
 - See `.local/tasks/` for the current task plans.
 - See `attached_assets/` for the NotebookLM conversation transcripts that drove early architecture decisions. Treat these as historical context, not authoritative — the canonical source of truth is this file plus the current code.

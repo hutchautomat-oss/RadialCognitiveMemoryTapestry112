@@ -14,18 +14,14 @@
  */
 
 import { pipeline, env, type FeatureExtractionPipeline } from "@xenova/transformers";
+// The 5 prototype seed phrases (the 5-D Intent-State Ontology, slot 1..5) are
+// the curated definition of what each tier MEANS — the highest-value
+// calibration asset. They live in the calibration seam, not inline here.
+// See `docs/protection-boundary.md`.
+import { CLASSIFIER_SEED_PHRASES as SEED_PHRASES } from "../lib/calibration";
 
 // Models load from the HF CDN; no local model cache in /public required.
 env.allowLocalModels = false;
-
-// 5-D Intent-State Ontology (RCMT spec). Order matters: slot 1..5.
-const SEED_PHRASES = [
-  "a verified fact that has already happened",          // Slot 1: Facts / Executions
-  "a comparison between expected and actual outcome",    // Slot 2: Scenario vs Reality
-  "a pass or fail measurement result",                   // Slot 3: Pass/Fail Metrics
-  "a theory or plan for what should happen next",        // Slot 4: Theories / Plans
-  "a dream or speculative inspiration",                  // Slot 5: Dreams / Inspirations
-];
 
 let extractor: FeatureExtractionPipeline | null = null;
 let prototypes: Float32Array[] = []; // 5 × 384, L2-normalized

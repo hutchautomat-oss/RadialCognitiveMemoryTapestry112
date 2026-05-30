@@ -40,6 +40,20 @@ import { MeshBVH } from "three-mesh-bvh";
 import { SaccadeWorker } from "../workers/SaccadeWorkerManager";
 import { pushHudEvent } from "./useHudStore";
 import { TIER_LABEL, TIER_BAND } from "../lib/tierNarration";
+// Calibration seam — tuned/curated values the engine reads but does not derive.
+// Centralized in `../lib/calibration` so the engine/secret-sauce boundary is
+// explicit (see `docs/protection-boundary.md`). Re-exported below where the
+// value was previously public so the import surface stays unchanged.
+import {
+  NODE_DENSITY_BUBBLE,
+  TIER_LAMBDA,
+  REINFORCE_SIM_THRESHOLD,
+  REINFORCE_PROMOTE_COUNT,
+  HEALTH_DEATH,
+  HEALTH_DEMOTE,
+  MASS_REINFORCE_INCR,
+  MASS_REINFORCE_CAP,
+} from "../lib/calibration";
 
 /**
  * Peripheral-flash queue — incoming remote (LWW) updates push the mutated
@@ -92,52 +106,38 @@ export const TIER_STARTS: ReadonlyArray<number> = (() => {
   return arr;
 })();
 
-/** Per-tier decay rate λ for Health(t) = exp(-λ · Δt_seconds). */
-export const TIER_LAMBDA: ReadonlyArray<number> = [
-  0.005, // Fact — barely decays
-  0.015, // Scenario
-  0.03, // Metric
-  0.06, // Theory
-  0.12, // Dream — hyper-decay
-];
+/**
+ * Per-tier decay rate λ for Health(t) = exp(-λ · Δt_seconds).
+ * Calibration value (see `../lib/calibration`); re-exported here so the HUD,
+ * renderer, and geometry tests keep importing it from this module unchanged.
+ */
+export { TIER_LAMBDA };
 
 /** Dimensionality of the @xenova/transformers MiniLM-L6-v2 embedding. */
 export const EMBEDDING_DIM = 384;
 
-/** Cosine-similarity threshold for treating an input as reinforcement. */
-const REINFORCE_SIM_THRESHOLD = 0.92;
-/** Strikes required before promotion fires (slots 4 & 5 only). */
-const REINFORCE_PROMOTE_COUNT = 3;
-/** Health below this value → node evaporates. */
-const HEALTH_DEATH = 0.05;
-/**
- * Health below this value (but still above HEALTH_DEATH) → an *unreinforced*
- * node drifts one tier OUTWARD toward the Dream rim instead of staying central.
- * This is the mirror of inward promotion: low-confidence memories that were
- * never reinforced sort themselves to the periphery before they evaporate, so
- * the foveal core stays dense with high-certainty Facts.
- */
-const HEALTH_DEMOTE = 0.3;
+// REINFORCE_SIM_THRESHOLD, REINFORCE_PROMOTE_COUNT, HEALTH_DEATH,
+// HEALTH_DEMOTE, MASS_REINFORCE_INCR, MASS_REINFORCE_CAP are calibration —
+// imported from `../lib/calibration` at the top of this file.
 /** Max outward demotions per decay sweep — bounds animation/relayout churn. */
 const MAX_DEMOTE_PER_SWEEP = 6;
-/** Per-reinforcement scale bump. */
-const MASS_REINFORCE_INCR = 0.15;
-/** Max scale a single slot can grow to via reinforcement. */
-const MASS_REINFORCE_CAP = 3.0;
 /** Promotion orbital-shift duration (ms). Cubic ease-in-out. */
 export const PROMOTION_ANIM_MS = 400;
 /** Background decay sweep interval (ms). NOT inside useFrame — see comment. */
 const DECAY_SWEEP_MS = 2000;
 
 // ── RCMT v5.0 Physics & Density Constants ───────────────────────────
-// Exported so the foveation/geometry invariants tests (`*.test.ts`) pin
-// the literal values — any refactor that drifts the spiral or shrinks
-// the foveated radius will fail the suite loudly.
+// GOLDEN_ANGLE is a mathematical law (open engine) and stays here, pinned by
+// the geometry invariant test. NODE_DENSITY_BUBBLE is the foveation density
+// factor — a calibration value defined in `../lib/calibration` and re-exported
+// here so the same invariant test keeps pinning the literal value via this
+// module. Any refactor that drifts the spiral or shrinks the foveated radius
+// still fails the suite loudly.
 export const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
 // Z-strata (the old per-tier Z offset) was removed in Task #10 — the lattice
 // is now a single continuous 3D sphere, tiers distinguished by color +
 // foveated radius alone. See replit.md "Architecture decisions".
-export const NODE_DENSITY_BUBBLE = 0.6;
+export { NODE_DENSITY_BUBBLE };
 const MIN_SCALE = 0.15;
 const SCALE_PER_CHAR = 0.02;
 const MAX_SCALE = 1.5;

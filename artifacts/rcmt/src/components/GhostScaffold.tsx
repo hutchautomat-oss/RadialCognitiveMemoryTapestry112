@@ -14,10 +14,14 @@
 
 import { useMemo } from "react";
 import { BufferAttribute, BufferGeometry } from "three";
-import { MAX_NODES } from "../store/useSaccadeStore";
-
-const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
-const NODE_DENSITY_BUBBLE = 0.6;
+// GOLDEN_ANGLE + NODE_DENSITY_BUBBLE come from the canonical engine module
+// (NODE_DENSITY_BUBBLE is re-exported from the calibration seam) so the
+// scaffold can never drift from the lattice the store actually renders.
+import {
+  MAX_NODES,
+  GOLDEN_ANGLE,
+  NODE_DENSITY_BUBBLE,
+} from "../store/useSaccadeStore";
 
 function buildScaffoldPositions(): Float32Array {
   const arr = new Float32Array(MAX_NODES * 3);

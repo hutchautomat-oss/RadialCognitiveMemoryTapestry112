@@ -15,6 +15,7 @@ import {
   TIER_CAPS,
   TIER_STARTS,
   BVH_PROXY_MULT,
+  NODE_DENSITY_BUBBLE,
 } from "../store/useSaccadeStore";
 import { VISUAL_RADIUS_MULT } from "../components/SaccadeInstancedMesh";
 
@@ -166,12 +167,14 @@ export function checkBvhProxy(): InvariantResult {
 
 /** 5. Foveation monotone — radius non-decreasing in slot index. */
 export function checkFoveation(): InvariantResult {
-  // Closed-form check: r(i) = sqrt(i) * 0.6 is monotone non-decreasing.
-  // Sample at boundaries to catch a regression that breaks the spiral.
+  // Closed-form check: r(i) = sqrt(i) * NODE_DENSITY_BUBBLE is monotone
+  // non-decreasing. The density factor is read from the calibration seam (via
+  // the store re-export) so this check can never drift from the lattice the
+  // store actually renders. Sample at boundaries to catch a spiral regression.
   const samples = [0, 1, 100, 1000, 2000, 4000, 7000, MAX_NODES - 1];
   let lastR = -1;
   for (const i of samples) {
-    const r = Math.sqrt(i) * 0.6;
+    const r = Math.sqrt(i) * NODE_DENSITY_BUBBLE;
     if (r < lastR - 1e-6) {
       return {
         ok: false,
@@ -182,7 +185,7 @@ export function checkFoveation(): InvariantResult {
   }
   return {
     ok: true,
-    detail: `r(0)=0 r(7999)=${(Math.sqrt(MAX_NODES - 1) * 0.6).toFixed(2)}`,
+    detail: `r(0)=0 r(7999)=${(Math.sqrt(MAX_NODES - 1) * NODE_DENSITY_BUBBLE).toFixed(2)}`,
   };
 }
 
