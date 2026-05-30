@@ -179,6 +179,131 @@ describe("promotion returns the destination slot index, not the source", () => {
   });
 });
 
+describe("outward demotion drift (mirror of inward promotion)", () => {
+  beforeEach(resetStore);
+
+  it("an unreinforced, faded non-Dream node drifts one tier OUTWARD, not inward", () => {
+    // Spawn a Scenario (tier 2) node, then age it so its Health falls into the
+    // demotion band (HEALTH_DEATH=0.05 < h < HEALTH_DEMOTE=0.3) without ever
+    // being reinforced. The decay sweep must relocate it to tier 3 (outer),
+    // never tier 1 (inner) and never leave it central.
+    const spawn = useSaccadeStore.getState().injectLiveIntentVector({
+      slot: 2,
+      textLength: 8,
+      colorRGB: [0, 1, 0],
+    });
+    expect(spawn?.kind).toBe("spawn");
+    expect(spawn?.tier).toBe(2);
+    const sourceIdx = spawn!.index;
+
+    // Scenario λ=0.015 → h=0.2 at dt≈107s. Set an ancient injectedAt so the
+    // sweep sees a faded-but-not-dead node.
+    useSaccadeStore.getState().injectedAt[sourceIdx] = performance.now() - 107_000;
+
+    expect(useSaccadeStore.getState().tierCounts[1]).toBe(1);
+    expect(useSaccadeStore.getState().tierCounts[2]).toBe(0);
+
+    useSaccadeStore.getState().decaySweep();
+
+    const s = useSaccadeStore.getState();
+    // Source (tier 2) slot is freed.
+    expect(s.mass[sourceIdx]).toBe(0);
+    // Exactly one occupant now lives in the tier 3 (outer) range, animating.
+    const t3Start = TIER_STARTS[2];
+    const t3End = t3Start + TIER_CAPS[2];
+    let destIdx = -1;
+    for (let i = t3Start; i < t3End; i++) {
+      if (s.mass[i] > 0) {
+        destIdx = i;
+        break;
+      }
+    }
+    expect(destIdx).toBeGreaterThanOrEqual(0);
+    expect(s.animStartTime[destIdx]).toBeGreaterThan(0); // orbital-shift staged
+    // Tier bookkeeping: Scenario lost it, Metric gained it.
+    expect(s.tierCounts[1]).toBe(0);
+    expect(s.tierCounts[2]).toBe(1);
+  });
+
+  it("a node drifts at most ONE tier per sweep, even when an earlier demotion re-occupies a later candidate's slot", () => {
+    // Regression: candidates are collected once (pre-relocation). A worst-health
+    // Fact demoting into a full Scenario tier evicts the single Scenario
+    // occupant AND re-occupies that exact slot. That slot is itself still in the
+    // candidate list; without the mid-flight guard it would be demoted a SECOND
+    // time, pushing a just-placed node two tiers out in one sweep.
+    resetStore();
+    const st = useSaccadeStore.getState();
+    const frame = st.mockFrames[0]!;
+
+    // Worst-health Fact (tier 1) at slot 0: h≈0.06 (λ=0.005, dt≈562s) — alive,
+    // demote-eligible, and the first candidate processed.
+    st.mass[0] = 1;
+    st.injectedAt[0] = performance.now() - 562_000;
+    st.reinforcementCount[0] = 0;
+    st.animStartTime[0] = 0;
+    frame[0 * STRIDE + 6] = 1;
+
+    // Lone Scenario (tier 2) occupant, higher health (h≈0.2, λ=0.015, dt≈107s):
+    // demote-eligible too, but processed AFTER the Fact.
+    const T2 = TIER_STARTS[1];
+    st.mass[T2] = 1;
+    st.injectedAt[T2] = performance.now() - 107_000;
+    st.reinforcementCount[T2] = 0;
+    st.animStartTime[T2] = 0;
+    frame[T2 * STRIDE + 6] = 1;
+
+    // Force the Fact's demotion to EVICT (no free Scenario slot), and keep the
+    // bookkeeping coherent with the two slots we placed by hand.
+    useSaccadeStore.setState({
+      tierCounts: [1, 1, 0, 0, 0],
+      vacantSlotsByTier: st.vacantSlotsByTier.map((arr, t) =>
+        t === 1 ? [] : arr.filter((idx) => idx !== 0 && idx !== T2),
+      ),
+    });
+
+    useSaccadeStore.getState().decaySweep();
+
+    const s = useSaccadeStore.getState();
+    const occ = (t: number) => {
+      const start = TIER_STARTS[t];
+      const end = start + TIER_CAPS[t];
+      let n = 0;
+      for (let i = start; i < end; i++) if (s.mass[i] > 0) n++;
+      return n;
+    };
+    // The Fact landed in Scenario (one tier out). NOTHING reached Metric.
+    expect(occ(0)).toBe(0); // Fact source freed
+    expect(occ(1)).toBe(1); // exactly one node in Scenario
+    expect(occ(2)).toBe(0); // no double-demotion into Metric
+    // tierCounts stay consistent with actual occupancy (no double-decrement).
+    for (let t = 0; t < 5; t++) expect(s.tierCounts[t]).toBe(occ(t));
+    s.tierCounts.forEach((c) => expect(c).toBeGreaterThanOrEqual(0));
+    // Every registered vacant slot is genuinely empty.
+    s.vacantSlotsByTier.forEach((arr) =>
+      arr.forEach((idx) => expect(s.mass[idx]).toBe(0)),
+    );
+  });
+
+  it("a Dream (tier 5, rim) node never demotes — it is already at the periphery", () => {
+    const spawn = useSaccadeStore.getState().injectLiveIntentVector({
+      slot: 5,
+      textLength: 8,
+      colorRGB: [0.5, 0, 1],
+    });
+    expect(spawn?.tier).toBe(5);
+    const sourceIdx = spawn!.index;
+    // Dream λ=0.12 → h≈0.2 at dt≈13.4s: faded into the demote band but alive.
+    useSaccadeStore.getState().injectedAt[sourceIdx] = performance.now() - 13_400;
+
+    const dreamCountBefore = useSaccadeStore.getState().tierCounts[4];
+    useSaccadeStore.getState().decaySweep();
+    const s = useSaccadeStore.getState();
+    // Still alive, still in Dream — no outer tier to drift to.
+    expect(s.mass[sourceIdx]).toBeGreaterThan(0);
+    expect(s.tierCounts[4]).toBe(dreamCountBefore);
+  });
+});
+
 describe("reinforcement does not consume a new slot", () => {
   beforeEach(resetStore);
 

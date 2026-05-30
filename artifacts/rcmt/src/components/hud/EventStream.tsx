@@ -18,6 +18,7 @@ const TYPE_COLOR: Record<HudEventType, string> = {
   SPAWN: COLOR.text,
   REINFORCE: COLOR.accent,
   PROMOTE: "#b88dff",
+  DEMOTE: "#e0794f",
   EVICT: COLOR.warn,
   LWW_REJECT: COLOR.warn,
   LOW_CONF: COLOR.warn,

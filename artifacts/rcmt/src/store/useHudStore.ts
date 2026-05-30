@@ -22,6 +22,7 @@ export type HudEventType =
   | "SPAWN"
   | "REINFORCE"
   | "PROMOTE"
+  | "DEMOTE"
   | "EVICT"
   | "LWW_REJECT"
   | "LOW_CONF"
@@ -177,6 +178,16 @@ interface HudStore {
   setTickerBusy: (busy: boolean) => void;
   markTickerFired: () => void;
 
+  /**
+   * Cumulative count of every NEW memory ever admitted into the lattice
+   * (spawn + axiom). Unlike the live tier occupancy this NEVER decreases —
+   * it is the input-stream size used by the bloat-contrast readout to compute
+   * what an unbounded vector store *would* have grown to. RCMT's own footprint
+   * stays pinned at 8,000 slots / ~224 KB regardless.
+   */
+  totalInjected: number;
+  incInjected: (n?: number) => void;
+
   hudMode: HudMode;
   setHudMode: (mode: HudMode) => void;
   onboardingOpen: boolean;
@@ -293,6 +304,9 @@ export const useHudStore = create<HudStore>((set, get) => ({
         lastFireAt: Date.now(),
       },
     })),
+
+  totalInjected: 0,
+  incInjected: (n = 1) => set((s) => ({ totalInjected: s.totalInjected + n })),
 
   hudMode: initialHudMode.mode,
   setHudMode: (mode) => {

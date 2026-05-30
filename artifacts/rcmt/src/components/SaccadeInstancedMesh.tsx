@@ -179,7 +179,11 @@ export function SaccadeInstancedMesh() {
         let py = frameData[offset + 1];
         let pz = frameData[offset + 2];
         let promoMul = 1;
-        let promoFlash = 0; // 0..1 weighting toward cyan
+        let promoFlash = 0; // 0..1 weighting toward the flash color
+        // Direction of the orbital shift: inward (promotion) flashes cyan,
+        // outward (demotion drift toward the Dream rim) flashes warm/amber so
+        // the two reads as opposite radial motions, not the same event.
+        let flashOutward = false;
         const animStart = animStartArr[i];
         if (animStart > 0) {
           const rawT = (nowMs - animStart) / PROMOTION_ANIM_MS;
@@ -209,6 +213,10 @@ export function SaccadeInstancedMesh() {
             px = fx + (tx - fx) * ease;
             py = fy + (ty - fy) * ease;
             pz = fz + (tz - fz) * ease;
+            // Compare radii (origin-distance) of the endpoints: a larger
+            // destination radius = outward drift = demotion.
+            flashOutward =
+              tx * tx + ty * ty + tz * tz > fx * fx + fy * fy + fz * fz;
             const pulse = Math.sin(Math.PI * t);
             promoMul = 1 + 0.5 * pulse;
             promoFlash = pulse;
@@ -247,10 +255,14 @@ export function SaccadeInstancedMesh() {
           let g = frameData[offset + 4] * healthDim;
           let b = frameData[offset + 5] * healthDim;
           if (promoFlash > 0) {
-            // Lerp toward cyan (0,1,1) by promoFlash.
-            r = r + (0 - r) * promoFlash;
-            g = g + (1 - g) * promoFlash;
-            b = b + (1 - b) * promoFlash;
+            // Inward (promotion) → cyan (0,1,1). Outward (demotion drift) →
+            // warm amber (1, 0.47, 0.2), reading as "shedding to the rim".
+            const fr = flashOutward ? 1 : 0;
+            const fg = flashOutward ? 0.47 : 1;
+            const fb = flashOutward ? 0.2 : 1;
+            r = r + (fr - r) * promoFlash;
+            g = g + (fg - g) * promoFlash;
+            b = b + (fb - b) * promoFlash;
           }
           tempColor.setRGB(r, g, b);
         }

@@ -110,6 +110,16 @@ const REINFORCE_SIM_THRESHOLD = 0.92;
 const REINFORCE_PROMOTE_COUNT = 3;
 /** Health below this value → node evaporates. */
 const HEALTH_DEATH = 0.05;
+/**
+ * Health below this value (but still above HEALTH_DEATH) → an *unreinforced*
+ * node drifts one tier OUTWARD toward the Dream rim instead of staying central.
+ * This is the mirror of inward promotion: low-confidence memories that were
+ * never reinforced sort themselves to the periphery before they evaporate, so
+ * the foveal core stays dense with high-certainty Facts.
+ */
+const HEALTH_DEMOTE = 0.3;
+/** Max outward demotions per decay sweep — bounds animation/relayout churn. */
+const MAX_DEMOTE_PER_SWEEP = 6;
 /** Per-reinforcement scale bump. */
 const MASS_REINFORCE_INCR = 0.15;
 /** Max scale a single slot can grow to via reinforcement. */
@@ -271,7 +281,7 @@ export interface InjectOutcome {
   /** Absolute VRAM slot index that was written to. */
   index: number;
   /** What kind of mutation occurred. */
-  kind: "spawn" | "reinforce" | "evict" | "promote";
+  kind: "spawn" | "reinforce" | "evict" | "promote" | "demote";
   /** Tier (1..5) the slot belongs to AFTER the mutation. */
   tier: number;
 }
@@ -780,7 +790,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
 
   decaySweep: () => {
     const state = get();
-    const { mockFrames, activeFrameIndex, mass, injectedAt, slotTier, spawnTime, embeddings, isFileLoaded, slotPhrase } = state;
+    const { mockFrames, activeFrameIndex, mass, injectedAt, slotTier, spawnTime, embeddings, isFileLoaded, slotPhrase, reinforcementCount, animStartTime } = state;
     // Decay must NEVER mutate a replay snapshot — `mockFrames[i]` for
     // `activeFrameIndex !== 0` (or when a binary is loaded) is a frozen
     // history frame, and writing to it during scrub rewrites the past.
@@ -795,6 +805,9 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
 
     const now = performance.now();
     const pruned: number[] = [];
+    // Candidates for outward demotion: { idx, health } for unreinforced,
+    // non-Dream slots that have faded below HEALTH_DEMOTE but are not yet dead.
+    const demoteCandidates: { idx: number; health: number }[] = [];
 
     for (let i = 0; i < MAX_NODES; i++) {
       if (mass[i] <= 0) continue;
@@ -814,6 +827,36 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
         const base = i * EMBEDDING_DIM;
         for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[base + k] = 0;
         pruned.push(i);
+      } else if (
+        health < HEALTH_DEMOTE &&
+        tier < TIER_CAPS.length && // Dream (tier 5) is the outer rim — can't drift further
+        reinforcementCount[i] === 0 && // reinforced nodes have earned grounding
+        animStartTime[i] === 0 // not already mid-flight (promotion or a prior demotion)
+      ) {
+        demoteCandidates.push({ idx: i, health });
+      }
+    }
+
+    // ── Outward demotion drift (mirror of inward promotion) ──────────
+    // The lowest-health unreinforced nodes sort outward toward the rim. Bounded
+    // per sweep so relayout/animation churn stays predictable. demoteSlot is
+    // tier-scoped (only ever evicts within the destination tier) so "Dream
+    // churn can never evict Facts" still holds.
+    if (demoteCandidates.length > 0) {
+      demoteCandidates.sort((a, b) => a.health - b.health);
+      const budget = Math.min(MAX_DEMOTE_PER_SWEEP, demoteCandidates.length);
+      for (let c = 0; c < budget; c++) {
+        const sourceIdx = demoteCandidates[c].idx;
+        const fromTier = slotTier[sourceIdx];
+        const dest = demoteSlot(sourceIdx, get, set);
+        if (dest === null) continue;
+        const toTier = slotTier[dest];
+        pushHudEvent({
+          type: "DEMOTE",
+          slot: dest,
+          tier: toTier,
+          detail: `${TIER_LABEL[fromTier - 1]} drifted outward to the ${TIER_BAND[toTier - 1]} — faded without reinforcement · vram[${dest}]`,
+        });
       }
     }
 
@@ -1086,6 +1129,186 @@ function promoteSlot(
   // Carry the source phrase forward to the destination slot so the hover
   // tooltip stays meaningful after a promotion (the slot moves shells, but
   // the originating text doesn't change).
+  slotPhrase[destIdx] = slotPhrase[sourceIdx];
+
+  // ── Free source slot ────────────────────────────────────────────
+  frame[srcOff + 6] = 0;
+  mass[sourceIdx] = 0;
+  injectedAt[sourceIdx] = 0;
+  reinforcementCount[sourceIdx] = 0;
+  spawnTime[sourceIdx] = 0;
+  animStartTime[sourceIdx] = 0;
+  slotPhrase[sourceIdx] = null;
+  for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[srcEmbBase + k] = 0;
+
+  // Tier bookkeeping: source freed, dest claimed.
+  const sourceTierIdx = sourceTier - 1;
+  const nextByTier = vacantSlotsByTier.map((arr, t) => {
+    if (t === targetTierIdx) return nextVacantForTarget;
+    if (t === sourceTierIdx) return appendUniqueFIFO(arr, [sourceIdx]);
+    return arr;
+  });
+  const nextCounts = tierCounts.slice();
+  nextCounts[sourceTierIdx] = Math.max(0, nextCounts[sourceTierIdx] - 1);
+  if (consumedVacant) {
+    nextCounts[targetTierIdx] = Math.min(
+      TIER_CAPS[targetTierIdx],
+      nextCounts[targetTierIdx] + 1,
+    );
+  }
+  // If we evicted to make room, count stays the same on the target tier.
+
+  set({
+    vacantSlotsByTier: nextByTier,
+    tierCounts: nextCounts,
+    bvhDirty: true,
+  });
+
+  return destIdx;
+}
+
+/**
+ * Demote a slot one shell OUTWARD (Fact→Scenario … Theory→Dream) — the mirror
+ * of promoteSlot. An unreinforced node that has faded below HEALTH_DEMOTE sorts
+ * itself toward the Dream rim instead of dying in place, so the foveal core
+ * stays dense with high-certainty memories.
+ *
+ * Identical relocation mechanics to promotion (pop a free destination slot, or
+ * evict the lowest-Health occupant WITHIN the destination tier), with two
+ * deliberate differences:
+ *   - targetTier = sourceTier + 1 (outer shell), capped at Dream.
+ *   - injectedAt is reset to `now`: the node gets a fresh decay clock in its
+ *     new, faster-decaying tier so it keeps drifting/fading rather than
+ *     instantly re-qualifying for another demotion the same sweep.
+ *
+ * Returns the destination slot index, or null if demotion couldn't happen
+ * (already at Dream, or the outer tier is wholly full of irreplaceable nodes).
+ */
+function demoteSlot(
+  sourceIdx: number,
+  get: () => SaccadeStore,
+  set: (partial: Partial<SaccadeStore>) => void,
+): number | null {
+  const state = get();
+  const {
+    mockFrames,
+    activeFrameIndex,
+    slotTier,
+    vacantSlotsByTier,
+    tierCounts,
+    mass,
+    injectedAt,
+    embeddings,
+    spawnTime,
+    reinforcementCount,
+    animStartTime,
+    animFromPos,
+    animToPos,
+    slotPhrase,
+  } = state;
+
+  // Revalidate the source: an earlier demotion in the SAME sweep may have
+  // chosen this slot as its destination-tier eviction victim (freeing it) or
+  // staged an animation on it. Candidates are collected once, before any
+  // relocation, so without this guard a stale index would be demoted a second
+  // time with mass 0 — double-decrementing tierCounts and corrupting the FIFO.
+  if (mass[sourceIdx] <= 0) return null; // freed by an earlier demotion
+  if (animStartTime[sourceIdx] !== 0) return null; // already mid-flight
+
+  const sourceTier = slotTier[sourceIdx]; // 1-based
+  if (sourceTier >= TIER_CAPS.length) return null; // already Dream — no outer shell
+  const targetTier = sourceTier + 1; // 1-based (outer shell)
+  const targetTierIdx = targetTier - 1;
+
+  const frame = mockFrames[activeFrameIndex];
+  if (!frame) return null;
+
+  // Allocate destination slot (free, or evict lowest-Health in target tier).
+  const now = performance.now();
+  let destIdx: number;
+  let nextVacantForTarget = vacantSlotsByTier[targetTierIdx];
+  let consumedVacant = false;
+  if (nextVacantForTarget.length > 0) {
+    destIdx = nextVacantForTarget[0];
+    nextVacantForTarget = nextVacantForTarget.slice(1);
+    consumedVacant = true;
+  } else {
+    const start = TIER_STARTS[targetTierIdx];
+    const end = start + TIER_CAPS[targetTierIdx];
+    const lambda = TIER_LAMBDA[targetTierIdx];
+    let worstHealth = Infinity;
+    let worstIdx = -1;
+    for (let i = start; i < end; i++) {
+      if (mass[i] <= 0) continue;
+      const dt = (now - injectedAt[i]) / 1000;
+      const health = Math.exp(-lambda * dt);
+      if (health < worstHealth) {
+        worstHealth = health;
+        worstIdx = i;
+      }
+    }
+    if (worstIdx < 0) return null;
+    destIdx = worstIdx;
+    // Wipe the evicted slot — destination is now logically empty.
+    const evictedOff = worstIdx * STRIDE;
+    frame[evictedOff + 6] = 0;
+    mass[worstIdx] = 0;
+    injectedAt[worstIdx] = 0;
+    reinforcementCount[worstIdx] = 0;
+    spawnTime[worstIdx] = 0;
+    animStartTime[worstIdx] = 0;
+    slotPhrase[worstIdx] = null;
+  }
+
+  // ── Copy slot state source → dest ───────────────────────────────
+  const srcOff = sourceIdx * STRIDE;
+  const dstOff = destIdx * STRIDE;
+  const srcMass = mass[sourceIdx];
+
+  // Source's current rendered position becomes anim origin.
+  const fromX = frame[srcOff + 0];
+  const fromY = frame[srcOff + 1];
+  const fromZ = frame[srcOff + 2];
+
+  // Compute destination lattice position from its absolute index + new tier.
+  const [toX, toY, toZ] = latticePosition(destIdx, targetTier);
+
+  // New (outer) tier color.
+  const [newR, newG, newB] = TIER_RGB[targetTier - 1];
+
+  // Write destination slot at the anim origin for visual continuity (the render
+  // loop lerps toward toPos over PROMOTION_ANIM_MS).
+  frame[dstOff + 0] = fromX;
+  frame[dstOff + 1] = fromY;
+  frame[dstOff + 2] = fromZ;
+  frame[dstOff + 3] = newR;
+  frame[dstOff + 4] = newG;
+  frame[dstOff + 5] = newB;
+  frame[dstOff + 6] = srcMass;
+
+  mass[destIdx] = srcMass;
+  // Fresh decay clock in the new, faster-decaying tier.
+  injectedAt[destIdx] = now;
+  reinforcementCount[destIdx] = 0;
+  spawnTime[destIdx] = 0; // demotion has its own animation, not starburst
+
+  // Copy embedding.
+  const srcEmbBase = sourceIdx * EMBEDDING_DIM;
+  const dstEmbBase = destIdx * EMBEDDING_DIM;
+  for (let k = 0; k < EMBEDDING_DIM; k++) {
+    embeddings[dstEmbBase + k] = embeddings[srcEmbBase + k];
+  }
+
+  // Stage animation on destination slot.
+  animStartTime[destIdx] = now;
+  animFromPos[destIdx * 3 + 0] = fromX;
+  animFromPos[destIdx * 3 + 1] = fromY;
+  animFromPos[destIdx * 3 + 2] = fromZ;
+  animToPos[destIdx * 3 + 0] = toX;
+  animToPos[destIdx * 3 + 1] = toY;
+  animToPos[destIdx * 3 + 2] = toZ;
+
+  // Carry the source phrase forward (the slot moves shells, the text doesn't).
   slotPhrase[destIdx] = slotPhrase[sourceIdx];
 
   // ── Free source slot ────────────────────────────────────────────

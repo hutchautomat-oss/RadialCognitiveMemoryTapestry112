@@ -35,7 +35,7 @@ export interface InjectResult {
   vramIndex: number | null;
   latencyMs: number;
   confidence: number;
-  kind: "spawn" | "reinforce" | "evict" | "promote" | "rejected";
+  kind: "spawn" | "reinforce" | "evict" | "promote" | "demote" | "rejected";
 }
 
 // Single in-flight chain serializes both console and ticker callers.
@@ -98,6 +98,14 @@ async function doInject(
     }
 
     // 3. Emit canonical event for this outcome.
+    // Count every NEW memory admitted into the cumulative input-stream size
+    // that drives the bloat-contrast readout. Only a "spawn" is an admission —
+    // an axiom RE-seed that lands on an existing slot reinforces, and
+    // reinforce / promote / demote / evict are migrations or removals. Keying
+    // off `outcome.kind` (not `source`) keeps the vector-DB contrast honest.
+    if (outcome.kind === "spawn") {
+      useHudStore.getState().incInjected();
+    }
     const tierLabel = TIER_NAMES[Math.max(0, Math.min(4, outcome.tier - 1))];
     if (source === "axiom") {
       pushHudEvent({
@@ -116,7 +124,9 @@ async function doInject(
               ? "EVICT"
               : outcome.kind === "promote"
                 ? "PROMOTE"
-                : "SPAWN",
+                : outcome.kind === "demote"
+                  ? "DEMOTE"
+                  : "SPAWN",
         slot: outcome.index,
         tier: outcome.tier,
         phrase: previewPhrase(text),
