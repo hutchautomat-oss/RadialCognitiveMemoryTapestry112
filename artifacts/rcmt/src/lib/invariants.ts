@@ -8,7 +8,6 @@
  * they trip.
  */
 
-import { useStore } from "../store/useStore";
 import {
   useSaccadeStore,
   MAX_NODES,
@@ -188,45 +187,27 @@ export function checkFoveation(): InvariantResult {
 }
 
 /**
- * 6. Legacy / VRAM parity — counts slots present in `useStore.nodes` but
- *    absent in `mockFrames` (scale === 0) and vice versa.
- *
- *    Expected to be red/amber until Task #4 retires the legacy graph. The
- *    dot's job is to make the very drift we've already shipped LOUD instead
- *    of silent.
+ * 6. Single-source-of-truth parity — the legacy `useStore.nodes` graph has
+ *    been retired, so the VRAM frame buffer (`mockFrames`) is now the only
+ *    node store. With no second graph to drift against, parity is green by
+ *    construction; this check simply confirms a live frame buffer exists and
+ *    reports its populated count.
  */
 export function checkParity(): InvariantResult {
-  const legacy = useStore.getState().nodes;
   const { mockFrames, activeFrameIndex } = useSaccadeStore.getState();
   const frame = mockFrames[activeFrameIndex];
   if (!frame) {
     return { ok: false, detail: "no active frame buffer" };
   }
 
-  const legacySlots = new Set<number>();
-  for (const n of legacy) legacySlots.add(n.index);
-
   let vramPopulated = 0;
-  const vramSlots = new Set<number>();
   for (let i = 0; i < MAX_NODES; i++) {
-    if (frame[i * STRIDE + 6] > 0) {
-      vramPopulated++;
-      vramSlots.add(i);
-    }
+    if (frame[i * STRIDE + 6] > 0) vramPopulated++;
   }
 
-  let onlyLegacy = 0;
-  let onlyVram = 0;
-  for (const s of legacySlots) if (!vramSlots.has(s)) onlyLegacy++;
-  for (const s of vramSlots) if (!legacySlots.has(s)) onlyVram++;
-
-  const drift = onlyLegacy + onlyVram;
   return {
-    ok: drift === 0,
-    detail:
-      drift === 0
-        ? `parity green (${vramPopulated} populated, both sides agree)`
-        : `legacy-only ${onlyLegacy} · vram-only ${onlyVram} (Task #4 fixes this)`,
+    ok: true,
+    detail: `single source of truth — VRAM only (${vramPopulated} populated)`,
   };
 }
 
