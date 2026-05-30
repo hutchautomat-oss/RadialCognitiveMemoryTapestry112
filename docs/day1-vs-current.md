@@ -1,0 +1,3 @@
+# Day-1 vs. current geometry
+
+The Day-1 prototype encoded meaning along three labeled semantic axes — Categorical Vector (X), Temporal Scale (Y), Emotional Valence (Z) — with text labels attached directly to nodes. Commit `8767217` ("Spherical Fibonacci Defense") pivoted to the current foveated-shells model to solve a center-knot anomaly and unlock dense packing. The pivot was correct technically but traded *semantic position* (a node's `(x,y,z)` meant something) for *aesthetic geometry* (position now encodes only slot tier + insertion order). Restoring some form of semantic placement within a shell — e.g. cosine-similarity ordering — is on the roadmap, not the current build. Future sessions: do not try to reinvent the original axes.
