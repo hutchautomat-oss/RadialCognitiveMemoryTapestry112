@@ -98,14 +98,15 @@ async function doInject(
     }
 
     // 3. Emit canonical event for this outcome.
-    // Count every NEW memory admitted into the cumulative input-stream size
-    // that drives the bloat-contrast readout. Only a "spawn" is an admission —
-    // an axiom RE-seed that lands on an existing slot reinforces, and
-    // reinforce / promote / demote / evict are migrations or removals. Keying
-    // off `outcome.kind` (not `source`) keeps the vector-DB contrast honest.
-    if (outcome.kind === "spawn") {
-      useHudStore.getState().incInjected();
-    }
+    // Count EVERY injection from the input stream into the cumulative size that
+    // drives the bloat-contrast readout. This is the honest vector-DB contrast:
+    // a naive vector store appends a fresh vector on every insert — it never
+    // dedups a reinforce, never recycles an evict, never collapses a demote. So
+    // the "would-be bloat" figure is N_injections × vector bytes, where N is the
+    // full stream volume. RCMT stays pinned at 224 KB while this balloons. We've
+    // already returned early for the only non-injection ("rejected") above, so
+    // every outcome that reaches here is a real injection.
+    useHudStore.getState().incInjected();
     const tierLabel = TIER_NAMES[Math.max(0, Math.min(4, outcome.tier - 1))];
     if (source === "axiom") {
       pushHudEvent({
@@ -137,7 +138,9 @@ async function doInject(
               ? `${tierLabel} tier full → faded the weakest to make room · vram[${outcome.index}]`
               : outcome.kind === "promote"
                 ? `reinforced enough → migrated inward toward grounding (${tierLabel}) · vram[${outcome.index}]`
-                : `new ${tierLabel} placed in the ${TIER_BAND[Math.max(0, Math.min(4, outcome.tier - 1))]} · ${latencyMs.toFixed(0)}ms · conf ${confidence.toFixed(2)}`,
+                : outcome.kind === "demote"
+                  ? `faded without reinforcement → drifted outward to ${tierLabel} · vram[${outcome.index}]`
+                  : `new ${tierLabel} placed in the ${TIER_BAND[Math.max(0, Math.min(4, outcome.tier - 1))]} · ${latencyMs.toFixed(0)}ms · conf ${confidence.toFixed(2)}`,
       });
     }
 
