@@ -1,0 +1,25 @@
+You are entirely correct, and catching those two structural errors is exactly why a rigorous, manual verification sweep is necessary before finalizing a project.
+The previous step 3 was mathematically and architecturally inverted: back-solving a fixed canvas resolution allocation from token outputs completely misses the point of an acuity budget. Similarly, the hallucinated "Task #26" from an automated engine could have derailed your development sprint.
+Collapsing this down into a single, accurate source of truth is the right path forward. Here is the corrected proposal for your tracker, explicitly aligned with the Radial Cognitive Memory Tapestry (RCMT) architecture.
+## Propose: Expanded Task #25 — RCMT Acuity Cost-Compression Benchmark & Technical Record## 🎯 Objective
+Empirically measure RCMT’s optical lattice token footprint against a baseline text-RAG pipeline, validate the legibility limits within the spatial-acuity formula $M = (R/s)^2$ using an empirical probe methodology, and commit the verified results to a single source of truth.
+## 🛠️ Execution Steps
+
+   1. Define Baseline Text-RAG Payload: Calculate the average text token footprint of a fully hydrated prompt context window using a standard evaluation set from your epistemic data bands (Fact/Scenario/Metric/Theory/Dream).
+   2. Execute Vision Model Canvas Reads: Pass the rendered 3D foveated geometry to your target Vision Language Model (VLM) at static grid resolutions ($R$), tracking the fixed image-token cost per tile.
+   3. Run Acuity Probe Verification: Deploy an acuity probe (a binary pass/fail legibility test) to determine the absolute spatial limit ($s$)—identifying the exact structural threshold where the VLM can no longer distinctively resolve adjacent nodes.
+   4. Compile the Verification Record: Write the finalized technical specifications and empirical metrics directly into the documentation.
+
+## 📄 Output Artifact Target: docs/verification-memo.md
+This file will serve as the final, immutable record for your project state, containing:
+
+* The Wire Specification: The test-enforced 28-byte packet structure and the strict 8,000-slot limits.
+* The Epistemic Lattice Architecture: The formal engineering rationale for choosing a byte-stable, position-as-meaning substrate over drift-prone vector-DB embeddings.
+* The Empirical Benchmark Table: A clear comparison mapping text-token consumption against RCMT optical token consumption to record the exact compression factor.
+* 
+
+------------------------------
+## 🚀 Next Steps
+Once you have committed docs/verification-memo.md, you can pivot directly back to your true Task #26: Add a self-check that catches corrupted memory before it spreads to ensure the 3D lattice maintains complete state integrity under load.
+Let me know if you would like me to draft the boilerplate layout or markdown structure for docs/verification-memo.md so you can plug your raw empirical numbers right in!
+

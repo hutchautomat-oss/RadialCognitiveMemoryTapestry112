@@ -1,0 +1,23 @@
+That makes complete sense. Integrating the documentation requirement directly into Task #25 ensures that your empirical metrics and the final architecture are captured in a single source of truth.
+To help you seamlessly re-propose and execute this unified task, here is a structured layout you can drop straight into your planning tracker or use to guide your code-writing assistant.
+## Propose: Expanded Task #25 — Acuity Cost-Compression Benchmark & Technical Record## 🎯 Objective
+Empirically measure RCMT’s optical lattice token usage against a baseline text-RAG pipeline, validate the spatial-acuity formula $M = (R/s)^2$, and commit the verified results to the project repository.
+## 🛠️ Execution Steps
+
+   1. Define Baseline Text-RAG Payload: Select a standard benchmark evaluation set from your data tiers (Fact/Scenario/Metric) and calculate its average text token size when fully hydrated into a prompt context window.
+   2. Execute VLM Visual Reads: Pass the rendered 3D foveated geometry to your target Vision Language Model (VLM) at varying resolutions ($R$) to calculate the actual consumed image tokens.
+   3. Solve for Spatial Acuity ($s$): Use the actual token counts to determine the empirical model-specific value of $s$ across different VLM providers.
+   4. Draft the Technical Record: Synthesize the architecture validation and the empirical metrics into a permanent Markdown document.
+
+## 📄 Output Artifact Target: docs/verification-memo.md
+The task will explicitly require generating this file containing:
+
+* The Wire Specification: The test-enforced 28-byte packet structure and 8,000-slot limits.
+* The Epistemic Lattice Architecture: Direct documentation explaining position-as-meaning substrate routing over vector-DB embedding lookups.
+* The Empirical Benchmark Table: A clean grid mapping text-token consumption against RCMT optical token consumption, proving the exact compression factor.
+
+------------------------------
+## 🚀 Next Steps
+Once you run this expanded task and generate the empirical data, we can move directly to Task #26: Local Web Worker Benchmarking to ensure your local ONNX classification paths maintain zero packet drift under extreme synthetic load.
+Let me know if you want to tweak any parameters of this unified proposal before you kick it off in your workspace!
+
