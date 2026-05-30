@@ -168,6 +168,17 @@ The lattice now starts visually empty (only the dim ghost scaffold visible). Aft
 
 Aerospace EFIS palette — `bg rgba(8,10,12,0.88)`, `border #2a3338`, `text #c6cdd1`, `nominal #6dd99e`, `warn #e2a458`, `fail #d75f5f`, `accent #4fd1c5`. JetBrains/Share Tech Mono. 1 px hairlines, 2 px radii max, no shadows. Cards lean on legibility — the lattice provides the spectacle, the HUD provides the dial.
 
+### Guided vs. aerospace mode (Task #20)
+
+The HUD has two presentation modes, switched by the `AERO / GUIDED` toggle pinned top-right (just left of the Ontology card). **Mode is pure chrome — it never touches telemetry, invariants, the ticker, or the injection pipeline; aerospace mode is byte-identical to before this task.**
+
+- **AEROSPACE** (default) — the dense EFIS surface for power users. Terse code titles, no help affordances.
+- **GUIDED** — for a first-time evaluator. Each card title renders `"{EFIS} · {plainTitle}"` (e.g. `SYNC CORE · Network & Engine`) and grows a `?` button that toggles a ~2-sentence plain-English help popover. The Invariants strip gets the same treatment manually (it's not a `HudCard`).
+- Mode persists to `localStorage` key `rcmt:hud:mode:v1` via `useHudStore.setHudMode`. The store reads it once at module load.
+- **`HudOnboarding`** is a five-panel walkthrough (ghost scaffold → axiom seed → ticker drip → tier legend → invariants). It auto-opens on first load (no mode key set) and is re-openable any time via the `/tour` console command. Dismiss semantics set the mode preference: **Done → GUIDED**, **Skip on a true first run → AEROSPACE**, **Skip when a preference already exists → unchanged**. `hudModePreferenceExists()` (exported from `useHudStore`) gates that last case.
+- `plainTitle` / `helpText` are optional `HudCard` props — adding a new card to guided mode is just passing those two strings.
+- `/help` is now grouped plain-English (Lattice / Ticker / Diagnostics / Help).
+
 ## User preferences
 
 - Audit NotebookLM pastes against the current codebase before applying. They are useful spec drafts but have shipped real bugs in the past (e.g. a `vacantSlots` dedup that collapsed FIFO ordering; a `THREE.Frustum`-based lasso that can't represent a polygon). Never paste a code block from `attached_assets/` verbatim without verifying it against the actual files.

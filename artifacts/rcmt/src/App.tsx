@@ -5,6 +5,7 @@ import { CommandConsole } from "./components/CommandConsole";
 import { Timeline } from "./components/Timeline";
 import { ThoughtTicker } from "./components/ThoughtTicker";
 import { HoverTooltip } from "./components/HoverTooltip";
+import { HudOnboarding } from "./components/HudOnboarding";
 import {
   SyncCore,
   Ontology,
@@ -12,6 +13,7 @@ import {
   Invariants,
   CameraReadout,
   TelemetryBar,
+  HudModeToggle,
 } from "./components/hud";
 import { NetworkManager } from "./network/NetworkManager";
 import { OnnxWorker } from "./workers/OnnxWorkerManager";
@@ -144,6 +146,7 @@ export default function App() {
       </Suspense>
 
       {/* Aerospace telemetry HUD */}
+      <HudModeToggle />
       <Invariants />
       <SyncCore />
       <Ontology />
@@ -153,6 +156,9 @@ export default function App() {
       <TelemetryBar />
       <Timeline />
       <HoverTooltip />
+
+      {/* First-run / on-demand guided walkthrough (mounted last so it overlays). */}
+      <HudOnboarding />
 
       {/* Invisible: drives autonomous thought loop. */}
       <ThoughtTicker />

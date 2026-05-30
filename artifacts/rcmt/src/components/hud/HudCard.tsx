@@ -28,6 +28,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { cardShell, cardHeader, COLOR } from "./tokens";
+import { useHudStore } from "../../store/useHudStore";
 
 type Anchor = {
   top?: number;
@@ -84,6 +85,16 @@ export interface HudCardProps {
   width: number | string;
   /** Extra style overrides applied to the shell (e.g. minWidth, maxHeight). */
   style?: CSSProperties;
+  /**
+   * Plain-English subtitle shown only in GUIDED mode, rendered as
+   * `"{title} · {plainTitle}"`. Aerospace mode ignores it.
+   */
+  plainTitle?: string;
+  /**
+   * ~2 sentences of help shown in a `?` popover in GUIDED mode. The button
+   * only appears when this is set and the HUD is in guided mode.
+   */
+  helpText?: string;
   /** Body content — hidden when the card is collapsed. */
   children: ReactNode;
 }
@@ -95,8 +106,13 @@ export function HudCard({
   initial,
   width,
   style,
+  plainTitle,
+  helpText,
   children,
 }: HudCardProps) {
+  const hudMode = useHudStore((s) => s.hudMode);
+  const guided = hudMode === "guided";
+  const [helpOpen, setHelpOpen] = useState(false);
   const [persisted, setPersisted] = useState<Persisted>(() => loadPersisted(id));
   const [zIndex, setZIndex] = useState<number>(() => ++zCounter);
   const dragState = useRef<{
@@ -227,12 +243,54 @@ export function HudCard({
           >
             {persisted.collapsed ? "▸" : "▾"}
           </button>
-          <span>{title}</span>
+          <span>{guided && plainTitle ? `${title} · ${plainTitle}` : title}</span>
+          {guided && helpText ? (
+            <button
+              type="button"
+              data-hud-no-drag="true"
+              onClick={() => setHelpOpen((v) => !v)}
+              aria-label={helpOpen ? "Hide help" : "Show help"}
+              aria-expanded={helpOpen}
+              style={{
+                background: helpOpen ? COLOR.accent : "transparent",
+                border: `1px solid ${helpOpen ? COLOR.accent : COLOR.border}`,
+                borderRadius: "50%",
+                color: helpOpen ? COLOR.bgSolid : COLOR.textDim,
+                cursor: "pointer",
+                width: 13,
+                height: 13,
+                fontSize: 9,
+                lineHeight: "11px",
+                textAlign: "center",
+                padding: 0,
+                fontFamily: "inherit",
+              }}
+            >
+              ?
+            </button>
+          ) : null}
         </span>
         {headerExtra ? (
           <span data-hud-no-drag="true">{headerExtra}</span>
         ) : null}
       </div>
+      {guided && helpText && helpOpen ? (
+        <div
+          data-hud-no-drag="true"
+          style={{
+            padding: "7px 10px",
+            borderBottom: `1px solid ${COLOR.border}`,
+            background: COLOR.bgSolid,
+            color: COLOR.text,
+            fontSize: 9.5,
+            lineHeight: 1.55,
+            letterSpacing: 0.2,
+            textTransform: "none",
+          }}
+        >
+          {helpText}
+        </div>
+      ) : null}
       {!persisted.collapsed && children}
     </div>
   );

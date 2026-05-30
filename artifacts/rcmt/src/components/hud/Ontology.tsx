@@ -50,6 +50,8 @@ export function Ontology() {
     <HudCard
       id="ontology"
       title="ONTOLOGY"
+      plainTitle="Memory by Tier"
+      helpText="Each bar is one of the five memory tiers, from rock-solid Facts at the core to speculative Dreams at the rim, showing how full it is. The +/− numbers are how many memories were added or recycled in the last 10 seconds."
       initial={{ top: 14, right: 14 }}
       width={300}
       style={{ maxHeight: 220, overflow: "hidden" }}

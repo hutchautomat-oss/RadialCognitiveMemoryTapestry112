@@ -3,7 +3,8 @@
  * commands. The user's hands-on entry point into the lattice.
  *
  * Slash commands:
- *   /help                  — list commands
+ *   /help                  — list commands (grouped, plain-English)
+ *   /tour                  — re-open the guided onboarding overlay
  *   /clear                 — clear console log (events untouched)
  *   /pause                 — pause the autonomous ticker
  *   /resume                — resume the autonomous ticker
@@ -101,8 +102,28 @@ export function CommandConsole() {
     const hud = useHudStore.getState();
     switch (cmd) {
       case "/help":
-        pushLog("commands: /pause /resume /rate <ms> /axioms /axiom-seed /invariants");
-        pushLog("          /events [type] /why <slot> /lasso /blast /clear /help");
+        pushLog("LATTICE — inject & inspect memories");
+        pushLog("  <phrase>      classify a phrase and store it as a memory");
+        pushLog("  /axioms       list the 7 boot axioms (read-only)");
+        pushLog("  /axiom-seed   re-inject all 7 axioms into the Fact tier");
+        pushLog("  /why <slot>   full provenance for one VRAM slot");
+        pushLog("  /lasso        toggle box-select to mark slots");
+        pushLog("  /blast        purge the currently-selected slots");
+        pushLog("TICKER — the autonomous thought loop");
+        pushLog("  /pause        stop auto-injecting phrases");
+        pushLog("  /resume       resume auto-injecting phrases");
+        pushLog("  /rate <ms>    set ticker period (250..30000 ms)");
+        pushLog("DIAGNOSTICS — read the substrate's state");
+        pushLog("  /invariants   dump the 5 format tripwires + detail");
+        pushLog("  /events [type] last 8 events, optionally filtered");
+        pushLog("HELP — learn the HUD");
+        pushLog("  /tour         re-open the guided walkthrough");
+        pushLog("  /clear        clear this console log");
+        pushLog("  /help         show this list");
+        break;
+      case "/tour":
+        useHudStore.getState().setOnboardingOpen(true);
+        pushLog("opening guided tour…");
         break;
       case "/clear":
         setLog(["console cleared"]);
@@ -262,6 +283,8 @@ export function CommandConsole() {
     <HudCard
       id="command-console"
       title="COMMAND CONSOLE"
+      plainTitle="Type or Run a Command"
+      helpText="Type any phrase to inject it as a new memory, or run a slash command like /help, /tour, or /pause. Everything you type is classified on-device and placed in the lattice by meaning, never sent to a server."
       initial={{ bottom: 96, left: 290 }}
       // Shrink to fit when the viewport narrows so the card never collides
       // with the EventStream's left edge (right:14 + width:380).

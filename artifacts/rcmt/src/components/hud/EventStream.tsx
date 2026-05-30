@@ -40,6 +40,8 @@ export function EventStream() {
     <HudCard
       id="event-stream"
       title="EVENT STREAM"
+      plainTitle="What Just Happened"
+      helpText="A live feed of every change to the lattice — new memories, reinforcements, evictions, and any format alarms — newest first. A healthy run is mostly green SPAWN lines; a red INVARIANT_FAIL means the storage format just broke."
       initial={{ bottom: 96, right: 14 }}
       width={380}
       style={{

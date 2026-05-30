@@ -92,6 +92,42 @@ export interface TickerState {
 const EVENT_RING_CAP = 500;
 let eventSeq = 0;
 
+/**
+ * HUD presentation mode. `aerospace` is the dense EFIS default for power
+ * users; `guided` layers plain-English titles + help popovers on top of the
+ * exact same cards. Mode never touches telemetry — it's pure chrome.
+ */
+export type HudMode = "aerospace" | "guided";
+
+const HUD_MODE_KEY = "rcmt:hud:mode:v1";
+
+function loadHudMode(): { mode: HudMode; hasPreference: boolean } {
+  if (typeof window === "undefined") return { mode: "aerospace", hasPreference: false };
+  try {
+    const raw = window.localStorage.getItem(HUD_MODE_KEY);
+    if (raw === "guided" || raw === "aerospace") return { mode: raw, hasPreference: true };
+  } catch {
+    // Private-mode / quota failures: fall back to the default, no preference.
+  }
+  return { mode: "aerospace", hasPreference: false };
+}
+
+function saveHudMode(mode: HudMode) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(HUD_MODE_KEY, mode);
+  } catch {
+    // Non-fatal — the toggle still works for the current session.
+  }
+}
+
+/** True once the user has made (or been assigned) an explicit mode choice. */
+export function hudModePreferenceExists(): boolean {
+  return loadHudMode().hasPreference;
+}
+
+const initialHudMode = loadHudMode();
+
 interface HudStore {
   events: HudEvent[];
   pushEvent: (e: Omit<HudEvent, "id" | "ts"> & { ts?: number }) => void;
@@ -120,6 +156,11 @@ interface HudStore {
   setTickerPeriod: (ms: number) => void;
   setTickerBusy: (busy: boolean) => void;
   markTickerFired: () => void;
+
+  hudMode: HudMode;
+  setHudMode: (mode: HudMode) => void;
+  onboardingOpen: boolean;
+  setOnboardingOpen: (open: boolean) => void;
 }
 
 const emptyInvariant = (): InvariantState => ({
@@ -218,6 +259,17 @@ export const useHudStore = create<HudStore>((set, get) => ({
         lastFireAt: Date.now(),
       },
     })),
+
+  hudMode: initialHudMode.mode,
+  setHudMode: (mode) => {
+    saveHudMode(mode);
+    set({ hudMode: mode });
+  },
+  // Auto-open the onboarding overlay only when the user has never made a
+  // mode choice (no localStorage key). A returning user goes straight to
+  // their saved mode; `/tour` re-opens the overlay on demand.
+  onboardingOpen: !initialHudMode.hasPreference,
+  setOnboardingOpen: (open) => set({ onboardingOpen: open }),
 }));
 
 /** Module-level shortcut so non-React modules can push events without subscribing. */

@@ -18,6 +18,8 @@ export function CameraReadout() {
     <HudCard
       id="camera-readout"
       title="CAMERA · RENDERER"
+      plainTitle="View & Render"
+      helpText="Where your camera sits in the 3D scene plus how hard the GPU is working (draw calls and triangles). One draw call for the whole lattice is the design goal — it stays cheap no matter how many memories are stored."
       initial={{ bottom: 96, left: 14 }}
       width={268}
     >

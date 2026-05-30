@@ -74,6 +74,8 @@ export function SyncCore() {
     <HudCard
       id="sync-core"
       title="SYNC CORE"
+      plainTitle="Network & Engine"
+      helpText="Shows whether this instance is syncing with peers and whether the on-device AI classifier is loaded. Green LINK and ENGINE with a low, steady packet rate mean the substrate is healthy and grounding new memories locally."
       initial={{ top: 14, left: 14 }}
       width={268}
       headerExtra={
