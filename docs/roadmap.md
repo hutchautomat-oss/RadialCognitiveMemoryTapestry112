@@ -23,6 +23,7 @@ Things that are in the code today, with a pointer to verify.
 | LWW arbitration by Float64 timestamp, server-side                   | `processPacketBatch` in `api-server/src/lib/lww.ts`          |
 | Binary frame playback / timeline scrub                              | `mockFrames`, `setFrameIndex` in `useSaccadeStore.ts`        |
 | Hover tooltip showing source phrase                                 | `HoverTooltip.tsx`, `slotPhrase[]` (Task #13)                |
+| BVH spatial index + functional lasso selection (Task #1)            | `getCollisionBVH`/`collisionBVH` in `useSaccadeStore.ts`, `LassoSelection.tsx` |
 
 ## Planned
 
@@ -32,12 +33,12 @@ Things we have not built but intend to. Each has its own one-page spec in `docs/
 - **[Epsilon Fibonacci packing correction](./roadmap/epsilon-fibonacci-packing.md)** — apply the well-known epsilon-offset variant of the spherical Fibonacci lattice for ~8% nearest-neighbor improvement near the poles, without changing the wire format.
 - **[`sovereign_save_key.bin` persistence](./roadmap/sovereign-save-key.md)** — write the 224 KB in-memory tapestry to disk on shutdown and re-load it on boot, so the lattice survives a refresh.
 - **[Log-polar cell-sizing](./roadmap/log-polar-cell-sizing.md)** — vary resolvable cell size by radius (cortical magnification) so the dense core stays within a VLM's spatial-acuity budget `M = (R/s)²` and never needs zoom, while preserving the foveal gradient. First step: measure the acuity constant `s` empirically via a confirmation/validation harness that also benchmarks image-tokens-per-query against a text-RAG baseline.
+- **[Multimodal substrate doctrine](./roadmap/multimodal-substrate.md)** — how a non-text sense (audio, video, haptics) enters the lattice without touching the wire format. The rule: any sense is a frozen, versioned codebook entry in a **sidecar keyed by slot index**, never on the 28-byte wire; the five tiers stay **epistemic, not per-sense**; codebooks are immutable / append-only / version-keyed / drop-unknown-version (ITU-T/IETF model). Resolves the federation hand-off: **a modality is a sidecar dimension, not a tapestry boundary** — tapestries are scoped per-agent/per-domain, never per-sense.
 - **[Mycelial Constellation federation doctrine](./roadmap/mycelial-constellation.md)** — how multiple RCMTs combine. A fractal, foveated *federation* model (substrates stay separate byte-stable shards; a query assembles a transient cross-shard view) rather than fusion into one bigger binary. Names the three distinct operations the word "stitch" conflates: **replication** (same brain, many devices — the existing peer-merge work), **federation/composition** (different brains, related context — a manifest graph index + lateral text-payload transfer), and **query/database** (federated shards under usage-weighted routing). Cross-brain semantic reconciliation without shared embeddings is the named open problem.
-- BVH spatial index over the 8k mesh + functional lasso path (Task #1) — *see existing task plan.*
 - Visible synapse edges between semantically related nodes — *Day-1 metaphor restoration.*
 - Semantic placement within a tier shell (cosine-similarity ordering instead of pure insertion index).
 - Text labels on the lattice (billboarded sprites on hover) — *partially landed via the Task #13 tooltip; full Day-1 sprite labels still pending.*
-- Multimedia ingestion (video / audio frames via a separate embedding worker + sidecar payload).
+- Multimedia ingestion (video / audio frames via a separate embedding worker + sidecar payload) — the *implementation* of the [Multimodal substrate doctrine](./roadmap/multimodal-substrate.md) above; the doctrine sets the rules (sidecar codebook, epistemic tiers, drop-unknown-version), this is the eventual ingestion worker.
 - Serializable "context ground" export — the parallel text-payload binary so another AI inherits source phrases, not just positions.
 - CKKS / TenSEAL homomorphic export — the `10000.0` cleartext-matrix scale is reserved for this.
 
@@ -46,6 +47,7 @@ Things we have not built but intend to. Each has its own one-page spec in `docs/
 Claims from the pastes that contradict the wire format, the vitest tripwires, or the deliberate architecture. Each has a one-line "why we don't do this" so the same claim cannot quietly slip back in.
 
 - **32-byte packet stride.** Rejected — the wire packet is 28 bytes, pinned by `lww.test.ts`. A 32-byte stride is what we'd see day-1 of a wire-format regression.
+- **Decay / episodic-recency state packed into `intentId` on the wire.** Rejected — decay is continuously-derived *local* state, not an LWW mutation; broadcasting it floods the wire and buys nothing the receiver can't derive locally. If an episodic channel is wanted it is a local visual/temporal cue (brightness/pulse) or a sidecar attribute, never a wire field. See [Multimodal substrate doctrine](./roadmap/multimodal-substrate.md) (experience-vs-memory fork).
 - **64-bit Composite Clock (48-bit timestamp + 16-bit peer-ID tiebreaker).** Rejected — the timestamp is a plain Float64; peerId is not in the packet. Composite clocks buy nothing when the server is the single arbiter.
 - **Embedded peerId in every packet.** Rejected — server assigns peerId via JSON HELLO and prevents self-echoes by sender-exclusion. Embedding it wastes bytes and couples identity to every position update.
 - **Per-tier Z-stride / 5 flat Z layers.** Rejected — the lattice is a single continuous 3D sphere; tier is encoded by contiguous index range + sqrt-radius foveation, not by Z plane. Reintroducing Z-stride breaks the unified-sphere invariant.

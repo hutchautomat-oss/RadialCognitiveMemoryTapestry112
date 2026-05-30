@@ -33,6 +33,10 @@ This is a vision elaboration (soft anchor), not a new invariant. Its main job is
 
 Full doctrine, the five mechanism-first layers, the DNA-stacking rejection, and the open cross-brain semantic-reconciliation problem: [`docs/roadmap/mycelial-constellation.md`](./docs/roadmap/mycelial-constellation.md).
 
+### Vision elaboration — multimodal substrate (soft anchor)
+
+RCMT's input today is text, but the substrate is meant to ground *any* sense (audio, video, haptics). The doctrine: a non-text sense never rides the 28-byte wire — it is quantized against a frozen, versioned **codebook** and stored in a **sidecar keyed by slot index**. The five tiers stay **epistemic, not per-sense** (a "Fact" sound and a "Fact" phrase share a tier and radial band; modality is sidecar metadata, never a sixth tier and never a Z-plane). Codebooks are immutable / append-only / version-keyed; a client meeting an unknown version drops the sidecar payload and falls back to position-only — never silently remaps. This resolves the federation hand-off: **a modality is a sidecar dimension, not a tapestry boundary**, so tapestries are scoped per-agent / per-domain, never per-sense. Like the Mycelial Constellation, this is a soft anchor wrapped around the hard wire-format invariants below — if any of it ever tensions with an invariant, the invariant wins. Full doctrine: [`docs/roadmap/multimodal-substrate.md`](./docs/roadmap/multimodal-substrate.md).
+
 ## Confirmed wire-format invariants
 
 These four facts are non-negotiable. Every one is defended by a vitest tripwire in `artifacts/api-server/src/lib/lww.test.ts`. NotebookLM-style pastes have repeatedly tried to "upgrade" the wire format in ways that would break all four; do not accept such changes without rewriting the tripwires and explaining why in this section.
@@ -77,13 +81,9 @@ The four facts above protect the *bytes*. This one protects the *shape* — and 
 
 ## Product
 
-RCMT is a personal cognitive substrate. The user types a phrase (or scrubs a binary file, or receives a peer broadcast). A local ONNX classifier assigns it to one of five ontology tiers — **Fact / Scenario / Metric / Theory / Dream**. The injection lands in an 8,000-slot VRAM-backed lattice as one instanced sphere in a foveated Fibonacci shell: facts cluster near the core, dreams disperse to the rim. Spawning is a 250 ms starburst animation. Memory pressure recycles dead slots through a FIFO queue.
+RCMT is a personal cognitive substrate. Input — a typed phrase, a scrubbed `.bin` frame, or a peer broadcast — is classified by a local ONNX model into one of five tiers (**Fact / Scenario / Metric / Theory / Dream**) and injected as one instanced sphere into the 8,000-slot foveated lattice (Facts near the core, Dreams at the rim); spawning is a 250 ms starburst, and memory pressure recycles dead slots via per-tier FIFO. Every mutation broadcasts as a 28-byte Last-Writer-Wins packet; a scrubbable timeline replays history from any binary frame buffer.
 
-Every mutation broadcasts over WebSocket as a 28-byte binary packet to all peers, where a Last-Writer-Wins timestamp arbitrates conflicts. A scrubbable timeline replays history from any binary frame buffer.
-
-Because each node is just a 28-byte position + tier + timestamp record rather than a 1500-dim float vector, the in-memory footprint is roughly two orders of magnitude denser than an equivalent vector store (~224 KB for the full 8k cognitive ground state). The lattice is foveated: early slots cluster tightly at the center (high-attention core), later slots spiral outward on a spherical Fibonacci shell (sparse periphery). All five tiers share one continuous 3D sphere — they are distinguished by color and by their natural foveated radial band (Facts inner, Dreams outer), not by Z-plane separation. Memory is append-only with FIFO reclamation when the 8k cap is hit, and peer instances merge state via the LWW binary protocol — no central authority, no embeddings ever leave the device.
-
-This is meant to behave like a brain: dense, append-only, peer-mergeable, picked up mid-thought by any agent that loads the binary.
+The human-readable breakdown lives in [`docs/`](./docs/) (start with [`what-is-rcmt.md`](./docs/what-is-rcmt.md)). The *why* behind the shape — optical compression, the foveal VLM consumer, the Fact→Dream epistemology — is in the Vision / Positioning and Architecture-decisions sections of this file.
 
 ## Where things live
 
@@ -118,7 +118,7 @@ These are the non-obvious choices that a reader couldn't infer from the code:
 - **Local-only ONNX inference.** The intent classifier runs in a web worker via `@xenova/transformers`; nothing ships to a server. The user's text never leaves their machine.
 - **Last-Writer-Wins by lwwTimestamp**, server-arbitrated. The server tracks the latest timestamp per `nodeIndex` and silently drops stale updates. No CRDT vector clocks — flat timestamps are sufficient because the server is the single arbiter.
 - **Binary frame playback.** The store holds `mockFrames: Float32Array[]` — each frame is a full 8k-slot snapshot. Timeline scrubbing just swaps the active frame index. Live mode = `mockFrames[0]` mutated in place.
-- **BVH with `maxLeafTris: 1`.** (Landing in Task #1.) The picking/lasso index uses three-mesh-bvh with one proxy triangle per slot, sized to match the rendered sphere's bounding box. `triangleIndex === slotIndex` by construction. Rebuild is lazy (dirty flag), not per-frame — a 60 fps scrub would otherwise burn ~120 ms/sec on BVH builds.
+- **BVH with `maxLeafTris: 1`.** The picking/lasso index uses three-mesh-bvh with one proxy triangle per slot, sized to match the rendered sphere's bounding box. `triangleIndex === slotIndex` by construction. Rebuild is lazy (dirty flag), not per-frame — a 60 fps scrub would otherwise burn ~120 ms/sec on BVH builds.
 
 ### Day-1 vs. current
 
@@ -126,9 +126,8 @@ The Day-1 prototype encoded meaning along three labeled semantic axes — Catego
 
 ## Gotchas
 
-- **`NodeCloud.tsx` still exists but is not mounted.** `Scene.tsx` only renders `SaccadeInstancedMesh`. Don't add features to `NodeCloud` — it's dead code on the render path even though the file lives in the tree. Task #1 will delete the file.
-- **BVH proxy bounding radius must be `0.15 * scale`.** `SaccadeInstancedMesh` uses `SphereGeometry(1, 8, 8)` scaled by `scale * 0.15 * popMul`. Any other multiplier desyncs picking from visuals. This invariant lands with Task #1's BVH index.
-- **`vacantSlots` is currently a single global FIFO across all 8k slots.** Dream churn can evict facts — broken by the cognitive metaphor. Task #3 introduces per-tier caches with promotion-on-reinforcement to fix this.
+- **BVH proxy bounding radius must be `0.15 * scale` (`BVH_PROXY_MULT`).** `SaccadeInstancedMesh` uses `SphereGeometry(1, 8, 8)` scaled by `scale * 0.15 * popMul`. Any other multiplier desyncs picking from visuals — pinned by the `bvh_proxy` invariant.
+- **Eviction is per-tier, never global.** `vacantSlotsByTier` gives each ontology tier its own FIFO + decay λ, so Dream churn can never evict Facts. Do NOT reintroduce a single global `vacantSlots` queue — it silently re-breaks the cognitive metaphor (per-tier eviction is pinned by the vitest FIFO-isolation tests).
 - **`mockFrames[activeFrameIndex]` is mutated in place during live mode.** Don't `set({mockFrames: ...})` from a useFrame loop — Zustand re-renders will tank the frame rate. Mutate the Float32Array directly and let `SaccadeInstancedMesh` re-read it each tick.
 - **ONNX worker is a HMR singleton — re-running `pnpm dev` keeps the worker alive but a hard reload re-downloads the 25 MB model.** Intentional; don't "fix" it without a plan.
 - **Server `client !== ws` is the source of truth for echo prevention.** Removing it would flood every client with its own broadcasts. The client-side peerId check that used to back this up has been deleted on purpose.
@@ -141,18 +140,12 @@ The Day-1 prototype encoded meaning along three labeled semantic axes — Catego
 
 ## Roadmap
 
-Not in the current build; sequenced for future tasks:
+The canonical, triaged roadmap — **Built / Planned / Rejected**, every rejection carrying a one-line "why" so it can't quietly slip back in — lives in [`docs/roadmap.md`](./docs/roadmap.md), with a one-page spec per planned item under [`docs/roadmap/`](./docs/roadmap/). That file is the single source of truth for build status; this section deliberately no longer duplicates the list (the duplicate copy had already drifted out of date).
 
-- **Per-tier caches with promotion-on-reinforcement** (Task #3) — replaces the global FIFO. Each ontology tier gets its own size cap, decay rate, and reinforcement counter; promoted nodes migrate inward with an animation.
-- **BVH spatial index over the 8k mesh and a functional lasso path** (Task #1) — the current lasso lives on the legacy (unmounted) `NodeCloud` component, so lasso is effectively non-functional today. The "BVH Raycast" tagline in the app header is aspirational until Task #1 lands.
-- **Visible synapse edges** — line segments drawn between semantically related nodes, restoring the "connective tissue" metaphor from Day-1.
-- **Semantic placement within a shell** — order nodes inside a tier by cosine similarity to a tier-anchor instead of by Fibonacci insertion index.
-- **Log-polar (cortical-magnification) cell-sizing** — vary a slot's resolvable cell size by radius (small at the core, large at the rim) so the densest core stays within a VLM's spatial-acuity budget `M = (R/s)²` and never needs zoom — while *preserving* the foveal density gradient (Foveal Gradient Integrity). First step is measuring the acuity constant `s` empirically via a confirmation/validation harness. See [`docs/roadmap/log-polar-cell-sizing.md`](./docs/roadmap/log-polar-cell-sizing.md).
-- **Text labels on the lattice** — billboarded sprites that show the source phrase on hover, like Day-1.
-- **Multimedia ingestion** — video/audio frames embedded into the lattice via a separate ingestion worker. Requires a new frame embedding model and a sidecar payload format.
-- **Serializable "context ground" export** — a single binary another AI loads to inherit the whole memory including the source text. Today the 28-byte stride carries position + scale + color but no text. Needs a parallel text-payload binary (or sidecar JSON) referenced by slot index.
-- **Persistence** (`sovereign_save_key.bin`) — write the in-memory tapestry to disk; user-confirmed deferred.
-- **CKKS / TenSEAL homomorphic export** — the `10000.0` cleartext-matrix scale is reserved for this. (Historical: an earlier `5.0` per-tier Z-stride existed as local-render decoration to fan tiers into 5 flat layers; it was removed when the lattice was unified into one continuous 3D sphere. Do not reintroduce it.)
+Two notes worth keeping inline because they are decisions, not status:
+
+- The **`10000.0` cleartext-matrix scale** is reserved for a future CKKS / TenSEAL homomorphic export. Do not repurpose it.
+- The removed **`5.0` per-tier Z-stride** (old local-render decoration fanning tiers into 5 flat layers) must not be reintroduced — the lattice is one continuous 3D sphere now.
 
 ## Pointers
 
