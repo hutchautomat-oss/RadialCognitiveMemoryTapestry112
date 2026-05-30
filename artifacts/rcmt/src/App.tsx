@@ -5,6 +5,7 @@ import { CommandConsole } from "./components/CommandConsole";
 import { Timeline } from "./components/Timeline";
 import { ThoughtTicker } from "./components/ThoughtTicker";
 import { HoverTooltip } from "./components/HoverTooltip";
+import { PeripheralFlash } from "./components/PeripheralFlash";
 import { HudOnboarding } from "./components/HudOnboarding";
 import {
   SyncCore,
@@ -12,6 +13,7 @@ import {
   EventStream,
   Invariants,
   CameraReadout,
+  EpistemicBalance,
   TelemetryBar,
   HudModeToggle,
 } from "./components/hud";
@@ -150,12 +152,14 @@ export default function App() {
       <Invariants />
       <SyncCore />
       <Ontology />
+      <EpistemicBalance />
       <CameraReadout />
       <EventStream />
       <CommandConsole />
       <TelemetryBar />
       <Timeline />
       <HoverTooltip />
+      <PeripheralFlash />
 
       {/* First-run / on-demand guided walkthrough (mounted last so it overlays). */}
       <HudOnboarding />

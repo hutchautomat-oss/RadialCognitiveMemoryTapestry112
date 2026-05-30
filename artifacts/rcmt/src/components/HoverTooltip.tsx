@@ -14,6 +14,7 @@
 
 import { useSaccadeStore } from "../store/useSaccadeStore";
 import { COLOR, FONT, TIER_NAMES } from "./hud/tokens";
+import { TIER_PLAIN, TIER_BAND } from "../lib/tierNarration";
 
 const TOOLTIP_OFFSET = 14;
 const TOOLTIP_MAX_WIDTH = 320;
@@ -87,6 +88,17 @@ export function HoverTooltip() {
         <span style={{ color: COLOR.textMuted }}>· vram[{hovered.slot}]</span>
       </div>
       <div>{phrase}</div>
+      <div
+        style={{
+          marginTop: 4,
+          fontSize: 9,
+          color: COLOR.textDim,
+          textTransform: "none",
+          letterSpacing: 0.2,
+        }}
+      >
+        {TIER_PLAIN[tier - 1] ?? ""} · {TIER_BAND[tier - 1] ?? ""}
+      </div>
     </div>
   );
 }

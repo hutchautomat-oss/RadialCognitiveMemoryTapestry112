@@ -3,4 +3,5 @@
 - [Promotion/move return values](slot-move-return-values.md) — operations that relocate a node between slots must return the destination, not the source; callers that broadcast/log the source after a move will reference a zeroed slot.
 - [RCMT unified-sphere geometry](rcmt-unified-sphere.md) — one global Fibonacci spiral + sqrt-radius foveation gives a continuous 3D sphere; per-tier sub-spirals + Z-stride do not.
 - [Audit NotebookLM pastes](notebooklm-audit.md) — the math is usually right but the rationale/labeling is often wrong; check claims against replit.md before applying.
+- [Clock-domain & drain-queue pitfalls](rcmt-clock-and-drain-pitfalls.md) — animation timing uses performance.now() (not Date.now()); throttled drain loops must gate BEFORE draining or lose items.
 - [Roadmap status single source](roadmap-status-single-source.md) — build status lives ONLY in docs/roadmap.md; replit.md points to it, never duplicates (the copy drifted stale).

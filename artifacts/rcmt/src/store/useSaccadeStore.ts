@@ -39,6 +39,31 @@ import { BufferAttribute, BufferGeometry } from "three";
 import { MeshBVH } from "three-mesh-bvh";
 import { SaccadeWorker } from "../workers/SaccadeWorkerManager";
 import { pushHudEvent } from "./useHudStore";
+import { TIER_LABEL, TIER_BAND } from "../lib/tierNarration";
+
+/**
+ * Peripheral-flash queue — incoming remote (LWW) updates push the mutated
+ * node's world position + tier here; `PeripheralFlashBridge` (in-canvas) drains
+ * it each frame to flash the corresponding viewport edge. Module-level (not
+ * store state) so high-frequency packet ingest never triggers React renders.
+ */
+export interface RemoteFlash {
+  x: number;
+  y: number;
+  z: number;
+  tier: number;
+}
+const REMOTE_FLASH_CAP = 64;
+let _remoteFlashQueue: RemoteFlash[] = [];
+const EMPTY_FLASHES: RemoteFlash[] = [];
+
+/** Drain (and clear) the pending remote-update flashes. */
+export function drainRemoteFlashes(): RemoteFlash[] {
+  if (_remoteFlashQueue.length === 0) return EMPTY_FLASHES;
+  const out = _remoteFlashQueue;
+  _remoteFlashQueue = [];
+  return out;
+}
 
 export const MAX_NODES = 8000;
 export const STRIDE = 7;
@@ -164,13 +189,31 @@ function certaintyToRGB(c: number): [number, number, number] {
   return [0.5 * (1 - t), 0, 0.8 + 0.2 * t];
 }
 
-/** Canonical RCMT slot palette mirrored from OnnxWorkerManager.SLOT_COLORS. */
-const TIER_COLORS: ReadonlyArray<[number, number, number]> = [
-  [0.0, 1.0, 1.0], // 1 Cyan   — Facts
-  [0.0, 1.0, 0.0], // 2 Green  — Scenario
-  [1.0, 1.0, 0.0], // 3 Yellow — Metric
-  [1.0, 0.5, 0.0], // 4 Orange — Theory
-  [0.5, 0.0, 1.0], // 5 Purple — Dream
+/**
+ * Canonical RCMT tier palette — the SINGLE source of truth for node color.
+ * `injectPhrase` reads it at spawn time and `promoteSlot` reads it on recolor;
+ * the HUD chips in `tokens.ts` carry deliberately muted versions of the same
+ * hues so the dense chrome stays legible while the lattice carries the contrast.
+ *
+ * Design — color opponency + certainty-by-saturation:
+ *   - Hues are spread across the opponent channels (cyan↔yellow on blue-yellow,
+ *     green↔orange/red on red-green, violet at the rim) so adjacent tiers are
+ *     pre-attentively separable at a glance.
+ *   - Saturation ramps DOWN Fact→Dream: Facts are sharp and vivid (high
+ *     certainty), Dreams fade to washed-out violet (low certainty). The color
+ *     itself encodes the Fact→Dream epistemology, reinforcing the foveal
+ *     radial gradient.
+ *
+ * These are RENDER-side RGB values written into the frame-buffer stride
+ * [3,4,5]. They never touch the 28-byte wire packet, slot position, or the
+ * authoritative `slotTier` map — recoloring is purely visual.
+ */
+export const TIER_RGB: ReadonlyArray<[number, number, number]> = [
+  [0.15, 0.95, 0.89], // 1 Fact     — sharp cyan-green, max saturation
+  [0.37, 0.9, 0.2], //   2 Scenario — vivid green
+  [0.87, 0.8, 0.29], //  3 Metric   — yellow
+  [0.83, 0.53, 0.31], // 4 Theory   — orange
+  [0.73, 0.46, 0.78], // 5 Dream    — faded violet, low saturation
 ];
 
 /** Build the static tier-lookup table once. Slot i ∈ [TIER_STARTS[t], TIER_STARTS[t]+TIER_CAPS[t]) → tier (t+1). */
@@ -495,7 +538,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
   },
 
   applyRemoteUpdate: (slot, x, y, z) => {
-    const { mockFrames, activeFrameIndex } = get();
+    const { mockFrames, activeFrameIndex, slotTier } = get();
     const frame = mockFrames[activeFrameIndex];
     if (!frame) return;
     if (slot < 0 || slot >= MAX_NODES) return;
@@ -506,6 +549,12 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     frame[off + 0] = x;
     frame[off + 1] = y;
     frame[off + 2] = z;
+    // Queue a peripheral-motion cue: a remote peer just mutated a (background)
+    // node. PeripheralFlashBridge drains this each frame and flashes the edge
+    // sector the node projects to. Bounded so a packet burst can't grow it.
+    if (_remoteFlashQueue.length < REMOTE_FLASH_CAP) {
+      _remoteFlashQueue.push({ x, y, z, tier: slotTier[slot] });
+    }
     set({ bvhDirty: true });
   },
 
@@ -780,7 +829,7 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
         type: "EVICT",
         slot: idx,
         tier,
-        detail: `vram[${idx}] tier ${tier} · reason=lowHealth (decay below threshold)`,
+        detail: `${TIER_LABEL[tier - 1]} faded from the ${TIER_BAND[tier - 1]} — decayed below survival health · vram[${idx}]`,
       });
     }
 
@@ -1001,7 +1050,7 @@ function promoteSlot(
   const [toX, toY, toZ] = latticePosition(destIdx, targetTier);
 
   // New tier color (canonical palette).
-  const [newR, newG, newB] = TIER_COLORS[targetTier - 1];
+  const [newR, newG, newB] = TIER_RGB[targetTier - 1];
 
   // Write destination slot: positioned at the anim origin so visual continuity
   // holds for this frame (the render loop will lerp toward toPos over 400 ms).

@@ -184,6 +184,19 @@ The HUD has two presentation modes, switched by the `AERO / GUIDED` toggle pinne
 - `plainTitle` / `helpText` are optional `HudCard` props — adding a new card to guided mode is just passing those two strings.
 - `/help` is now grouped plain-English (Lattice / Ticker / Diagnostics / Help).
 
+### Legible & learnable UI (Task #23)
+
+Goal: let a first-time evaluator infer the Fact→Dream epistemology from the *running* lattice without docs — through color, motion, a "mirror," and hovering any node. All four pieces are **render-/telemetry-side only**; none touch the wire packet, node position, or tier authority (`slotTier[]` stays the source of truth).
+
+- **Tier color-opponency.** Canonical `TIER_RGB` palette in `useSaccadeStore` is the single source of truth for node color (vivid cyan-green Fact → faded violet Dream, saturation ramping down so trust reads as chroma). `injectPhrase` and the promotion recolor read it; `OnnxWorkerManager.SLOT_COLORS/colorForSlot` were deleted. HUD chips (`hud/tokens.ts` `COLOR.tier`) use **muted** variants so the lattice carries the vivid contrast and the dense chrome stays low-chroma. Color only ever writes frame stride `[3,4,5]` — never bytes or position.
+- **Promotion traces** (`components/PromotionTraces.tsx`, in-canvas `LineSegments`) draw the inward migration vector while a node is promoted. **Live-mode only** (`!isFileLoaded && activeFrameIndex===0`) — a continuous mutator must never run during binary scrub.
+- **Peripheral LWW flash.** `applyRemoteUpdate` pushes each incoming remote update onto a bounded module-level queue (`REMOTE_FLASH_CAP = 64`, drained via `drainRemoteFlashes`). `PeripheralFlashBridge` (in-canvas) projects the mutated slot to the nearest viewport edge; `PeripheralFlash` (DOM) renders a fading edge bar — exploiting peripheral motion sensitivity to pull attention to remote activity. The bridge **throttles before draining** (gate first, then drain) so a throttle window can't silently discard a drained batch.
+- **Epistemic-balance mirror** (`hud/EpistemicBalance.tsx`) — a tier-mix bar plus a balance beam that tilts when the live mix is lopsided relative to `IDEAL_COM ≈ 0.42`. Reads `tierCounts` only.
+- **Self-narration.** Shared `lib/tierNarration.ts` (`TIER_LABEL` / `TIER_PLAIN` / `TIER_BAND` + helpers) feeds plain-English copy into `/why` (tier, radial-band placement, last-move state), the event-stream detail strings, and a dim line on the hover tooltip.
+- **Clock-domain gotcha:** animation timing (`animStartTime`, spawn/promotion) is `performance.now()`; the `/why` "migrating now" check must compare in that same clock, not `Date.now()` (different epochs → silent always-false).
+
+Out of scope (roadmap): semantic intra-shell repositioning, federation/codebook/wire-format changes, Gestalt clustering as new code (delivered implicitly via radial-shell proximity + color similarity).
+
 ## User preferences
 
 - Audit NotebookLM pastes against the current codebase before applying. They are useful spec drafts but have shipped real bugs in the past (e.g. a `vacantSlots` dedup that collapsed FIFO ordering; a `THREE.Frustum`-based lasso that can't represent a polygon). Never paste a code block from `attached_assets/` verbatim without verifying it against the actual files.

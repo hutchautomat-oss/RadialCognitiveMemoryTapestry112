@@ -21,13 +21,15 @@ export const COLOR = {
   fail: "#d75f5f",
   accent: "#4fd1c5",
   accentDim: "#2d6e68",
-  // Tier palette (mirrors OnnxWorker.SLOT_COLORS) for HUD chips.
+  // Tier chips — deliberately MUTED versions of the lattice palette
+  // (useSaccadeStore.TIER_RGB). The lattice nodes carry the vivid, opponent
+  // tier contrast; the dense HUD chrome stays low-chroma for legibility.
   tier: [
-    "#33d6d6", // Fact
-    "#3edb6b", // Scenario
-    "#d6c93a", // Metric
-    "#e08a3a", // Theory
-    "#9966dd", // Dream
+    "#2bb8a6", // Fact     — muted cyan-green
+    "#5aa84a", // Scenario — muted green
+    "#b8a23a", // Metric   — muted yellow
+    "#c2773f", // Theory   — muted orange
+    "#9a6fc2", // Dream    — muted violet
   ] as const,
 } as const;
 

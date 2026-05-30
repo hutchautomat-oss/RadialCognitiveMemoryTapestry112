@@ -25,7 +25,8 @@
  */
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
-import { useSaccadeStore, TIER_CAPS, STRIDE, MAX_NODES } from "../store/useSaccadeStore";
+import { useSaccadeStore, TIER_CAPS, STRIDE, MAX_NODES, PROMOTION_ANIM_MS } from "../store/useSaccadeStore";
+import { TIER_PLAIN, TIER_BAND } from "../lib/tierNarration";
 import { useHudStore, type HudEventType } from "../store/useHudStore";
 import { injectPhrase } from "../lib/injectPhrase";
 import { AXIOMS } from "../data/corpus";
@@ -246,6 +247,24 @@ export function CommandConsole() {
           `  pos=(${px.toFixed(2)}, ${py.toFixed(2)}, ${pz.toFixed(2)})  r=${Math.sqrt(px * px + py * py + pz * pz).toFixed(2)}`,
         );
         pushLog(`  origin=${peerStr}  HELLO=${helloAge}`);
+        if (mass > 1e-6) {
+          const ti = Math.max(0, Math.min(4, tier - 1));
+          const r = Math.sqrt(px * px + py * py + pz * pz);
+          pushLog(`  ↳ ${TIER_PLAIN[ti]}`);
+          pushLog(
+            `  ↳ sits in the ${TIER_BAND[ti]} (r=${r.toFixed(1)}) — nearer the core = more trusted`,
+          );
+          // animStartTime is written with performance.now() in the promotion
+          // path — compare in the same clock domain, not Date.now().
+          const anim = s.animStartTime[slot];
+          const migrating = anim > 0 && performance.now() - anim < PROMOTION_ANIM_MS;
+          const lastMove = migrating
+            ? "migrating inward right now (just promoted)"
+            : reinf >= 1
+              ? `reinforced ${reinf}× in place — climbing toward promotion`
+              : "never moved since it first landed";
+          pushLog(`  ↳ ${lastMove}`);
+        }
         if (mass <= 1e-6) {
           pushLog(`  (slot is FREE — pos shown is the foveated rest position)`);
         }

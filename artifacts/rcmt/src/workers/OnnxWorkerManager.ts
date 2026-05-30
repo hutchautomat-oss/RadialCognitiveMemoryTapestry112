@@ -141,18 +141,7 @@ function keywordFallbackSlot(text: string): number {
   return 3; // neutral middle slot
 }
 
-/** Canonical RCMT slot palette — cyan → green → yellow → orange → purple. */
-export const SLOT_COLORS: ReadonlyArray<[number, number, number]> = [
-  [0.0, 1.0, 1.0], // 1 Cyan   — Facts / Executions
-  [0.0, 1.0, 0.0], // 2 Green  — Scenario vs Reality
-  [1.0, 1.0, 0.0], // 3 Yellow — Pass/Fail Metrics
-  [1.0, 0.5, 0.0], // 4 Orange — Theories / Plans
-  [0.5, 0.0, 1.0], // 5 Purple — Dreams / Inspirations
-];
-
-export function colorForSlot(slot: number): [number, number, number] {
-  const idx = Math.max(1, Math.min(5, slot)) - 1;
-  return SLOT_COLORS[idx];
-}
+// The canonical tier palette now lives in useSaccadeStore (TIER_RGB) so node
+// color has a single source of truth; injectPhrase reads it directly.
 
 export const OnnxWorker = new OnnxWorkerManagerClass();

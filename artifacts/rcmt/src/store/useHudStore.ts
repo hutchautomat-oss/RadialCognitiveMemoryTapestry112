@@ -92,6 +92,10 @@ export interface TickerState {
 const EVENT_RING_CAP = 500;
 let eventSeq = 0;
 
+const PERIPHERAL_FLASH_CAP = 16;
+const PERIPHERAL_FLASH_TTL_MS = 1200;
+let flashSeq = 0;
+
 /**
  * HUD presentation mode. `aerospace` is the dense EFIS default for power
  * users; `guided` layers plain-English titles + help popovers on top of the
@@ -128,10 +132,26 @@ export function hudModePreferenceExists(): boolean {
 
 const initialHudMode = loadHudMode();
 
+export type FlashEdge = "top" | "bottom" | "left" | "right";
+
+/** A peripheral-motion marker: a fading bar pinned to a viewport edge in the
+ *  direction of a node a remote peer just mutated. */
+export interface PeripheralFlash {
+  id: number;
+  edge: FlashEdge;
+  /** 0..1 position along the edge (top→bottom for vertical, left→right for horizontal). */
+  pos: number;
+  color: string;
+  at: number;
+}
+
 interface HudStore {
   events: HudEvent[];
   pushEvent: (e: Omit<HudEvent, "id" | "ts"> & { ts?: number }) => void;
   clearEvents: () => void;
+
+  peripheralFlashes: PeripheralFlash[];
+  pushPeripheralFlash: (f: Omit<PeripheralFlash, "id" | "at">) => void;
 
   camera: CameraReadout | null;
   setCamera: (c: CameraReadout) => void;
@@ -183,6 +203,20 @@ export const useHudStore = create<HudStore>((set, get) => ({
     });
   },
   clearEvents: () => set({ events: [] }),
+
+  peripheralFlashes: [],
+  pushPeripheralFlash: (f) =>
+    set((s) => {
+      const now = Date.now();
+      // Prune anything past its fade window, then append + cap.
+      const kept = s.peripheralFlashes.filter((p) => now - p.at < PERIPHERAL_FLASH_TTL_MS);
+      kept.push({ ...f, id: ++flashSeq, at: now });
+      const trimmed =
+        kept.length > PERIPHERAL_FLASH_CAP
+          ? kept.slice(kept.length - PERIPHERAL_FLASH_CAP)
+          : kept;
+      return { peripheralFlashes: trimmed };
+    }),
 
   camera: null,
   setCamera: (c) => set({ camera: c }),

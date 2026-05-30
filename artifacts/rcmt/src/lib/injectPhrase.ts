@@ -19,10 +19,11 @@
  * the only thing that writes lattice state.
  */
 
-import { useSaccadeStore, STRIDE } from "../store/useSaccadeStore";
+import { useSaccadeStore, STRIDE, TIER_RGB } from "../store/useSaccadeStore";
 import { useHudStore, pushHudEvent } from "../store/useHudStore";
-import { OnnxWorker, colorForSlot } from "../workers/OnnxWorkerManager";
+import { OnnxWorker } from "../workers/OnnxWorkerManager";
 import { NetworkManager } from "../network/NetworkManager";
+import { TIER_BAND } from "../lib/tierNarration";
 
 const LOW_CONF_THRESHOLD = 0.55;
 const TIER_NAMES = ["FACT", "SCENARIO", "METRIC", "THEORY", "DREAM"];
@@ -70,8 +71,9 @@ async function doInject(
     const tierIdx = Math.max(0, Math.min(4, slot - 1));
     const confidence = similarities.length > tierIdx ? similarities[tierIdx] : 0;
 
-    // 2. Inject (the only authorized VRAM write path).
-    const color = colorForSlot(slot);
+    // 2. Inject (the only authorized VRAM write path). Color is render-side
+    // only (frame stride [3,4,5]) — it never touches the wire packet.
+    const color = TIER_RGB[Math.max(0, Math.min(4, slot - 1))];
     const outcome = useSaccadeStore.getState().injectLiveIntentVector({
       slot,
       textLength: text.length,
@@ -103,7 +105,7 @@ async function doInject(
         slot: outcome.index,
         tier: outcome.tier,
         phrase: previewPhrase(text),
-        detail: `axiom seed @ vram[${outcome.index}] (${tierLabel})`,
+        detail: `foundational fact seeded into the ${TIER_BAND[0]} · vram[${outcome.index}]`,
       });
     } else {
       pushHudEvent({
@@ -120,12 +122,12 @@ async function doInject(
         phrase: previewPhrase(text),
         detail:
           outcome.kind === "reinforce"
-            ? `+Δmass @ vram[${outcome.index}] (${tierLabel})`
+            ? `${tierLabel} reinforced — same idea seen again · vram[${outcome.index}]`
             : outcome.kind === "evict"
-              ? `${tierLabel} full → evicted lowest-health → vram[${outcome.index}]`
+              ? `${tierLabel} tier full → faded the weakest to make room · vram[${outcome.index}]`
               : outcome.kind === "promote"
-                ? `promoted inward → vram[${outcome.index}] (${tierLabel})`
-                : `${tierLabel} · ${latencyMs.toFixed(0)}ms · conf ${confidence.toFixed(2)}`,
+                ? `reinforced enough → migrated inward toward grounding (${tierLabel}) · vram[${outcome.index}]`
+                : `new ${tierLabel} placed in the ${TIER_BAND[Math.max(0, Math.min(4, outcome.tier - 1))]} · ${latencyMs.toFixed(0)}ms · conf ${confidence.toFixed(2)}`,
       });
     }
 

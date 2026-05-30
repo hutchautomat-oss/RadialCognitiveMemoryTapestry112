@@ -6,6 +6,8 @@ import { SaccadeInstancedMesh } from "./SaccadeInstancedMesh";
 import { LassoSelection } from "./LassoSelection";
 import { GhostScaffold } from "./GhostScaffold";
 import { HudBridge } from "./HudBridge";
+import { PromotionTraces } from "./PromotionTraces";
+import { PeripheralFlashBridge } from "./PeripheralFlashBridge";
 
 function DriftingLight() {
   const lightRef = useRef<PointLight>(null!);
@@ -57,6 +59,12 @@ export function Scene() {
 
       {/* Lasso overlay — runs BVH hit-test against the 8k lattice */}
       <LassoSelection />
+
+      {/* Movement-vector traces drawn while a node migrates inward on promotion. */}
+      <PromotionTraces />
+
+      {/* Projects incoming peer (LWW) updates to viewport-edge flash markers. */}
+      <PeripheralFlashBridge />
 
       {/* Origin marker */}
       <mesh position={[0, 0, 0]}>
