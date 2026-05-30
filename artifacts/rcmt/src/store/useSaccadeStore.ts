@@ -372,6 +372,20 @@ interface SaccadeStore {
   lassoEventCount: number;
   isLassoMode: boolean;
 
+  // ── Semantic search overlay (read-only foveal targeting) ──────
+  // A `/find` query embeds text, cosine-ranks active slots, then brightens
+  // matches + dims the rest and eases the camera toward their centroid. It
+  // NEVER moves a node, changes a tier, or touches the wire — positions stay
+  // a deterministic function of slot index. This is targeting, not placement.
+  /** slot → cosine score (0..1), inserted in descending-score order. Empty when idle. */
+  searchMatches: Map<number, number>;
+  /** True while a search highlight is active (matches found and not cleared). */
+  searchActive: boolean;
+  /** Bumped on every search set/clear so render subscribers re-kick on demand. */
+  searchEpoch: number;
+  /** Centroid of the top matches for camera convergence, or null. */
+  searchFocus: { x: number; y: number; z: number } | null;
+
   // ── Actions ───────────────────────────────────────────────────
   initWorker: () => void;
   loadFile: (file: File) => void;
@@ -431,6 +445,21 @@ interface SaccadeStore {
   setSelectedSlots: (slots: Set<number>) => void;
   clearSelection: () => void;
   blastSelectedSlots: () => number;
+
+  /**
+   * Pure read-only cosine scan over every active slot's stored embedding.
+   * Returns the top-K slots whose similarity is >= `threshold`, ranked
+   * descending. Mutates nothing — no frame write, no broadcast.
+   */
+  rankBySimilarity: (
+    query: Float32Array,
+    topK: number,
+    threshold: number,
+  ) => { slot: number; score: number }[];
+  /** Apply a ranked match list as the search highlight overlay (render-side only). */
+  setSearchMatches: (ranked: { slot: number; score: number }[]) => void;
+  /** Clear the search highlight overlay and release the camera. */
+  clearSearch: () => void;
 }
 
 // ── Module-init typed arrays (allocated once) ─────────────────────────
@@ -491,6 +520,10 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
   selectedSlots: new Set<number>(),
   lassoEventTick: 0,
   lassoEventCount: 0,
+  searchMatches: new Map<number, number>(),
+  searchActive: false,
+  searchEpoch: 0,
+  searchFocus: null,
   isLassoMode: false,
 
   initWorker: () => {
@@ -996,6 +1029,66 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
 
     return purgedCount;
   },
+
+  rankBySimilarity: (query, topK, threshold) => {
+    if (!query || query.length !== EMBEDDING_DIM) return [];
+    const { embeddings, mass } = get();
+    const matches: { slot: number; score: number }[] = [];
+    for (let i = 0; i < MAX_NODES; i++) {
+      if (mass[i] <= 0) continue;
+      const base = i * EMBEDDING_DIM;
+      let s = 0;
+      for (let k = 0; k < EMBEDDING_DIM; k++) {
+        s += query[k] * embeddings[base + k];
+      }
+      if (s >= threshold) matches.push({ slot: i, score: s });
+    }
+    matches.sort((a, b) => b.score - a.score);
+    return matches.slice(0, Math.max(0, topK));
+  },
+
+  setSearchMatches: (ranked) => {
+    // Insert in descending-score order so the Map iterates ranked while still
+    // giving O(1) has()/get() to the render loop.
+    const map = new Map<number, number>();
+    for (const m of ranked) map.set(m.slot, m.score);
+
+    // Camera focus = centroid of matched slots in the ACTIVE frame. Read-only.
+    let focus: { x: number; y: number; z: number } | null = null;
+    const state = get();
+    const frame = state.mockFrames[state.activeFrameIndex];
+    if (frame && ranked.length > 0) {
+      let cx = 0,
+        cy = 0,
+        cz = 0;
+      for (const m of ranked) {
+        const off = m.slot * STRIDE;
+        cx += frame[off];
+        cy += frame[off + 1];
+        cz += frame[off + 2];
+      }
+      focus = {
+        x: cx / ranked.length,
+        y: cy / ranked.length,
+        z: cz / ranked.length,
+      };
+    }
+
+    set((s) => ({
+      searchMatches: map,
+      searchActive: map.size > 0,
+      searchEpoch: s.searchEpoch + 1,
+      searchFocus: focus,
+    }));
+  },
+
+  clearSearch: () =>
+    set((s) => ({
+      searchMatches: new Map<number, number>(),
+      searchActive: false,
+      searchEpoch: s.searchEpoch + 1,
+      searchFocus: null,
+    })),
 }));
 
 /**

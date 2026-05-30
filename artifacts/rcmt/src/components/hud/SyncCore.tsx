@@ -206,6 +206,7 @@ function engineLabel(s: OnnxStatus): string {
     case "COMPILING": return "WARM";
     case "READY": return "READY";
     case "CLASSIFY_COMPLETE": return "READY";
+    case "EMBED_COMPLETE": return "READY";
     case "ERROR": return "ERR";
   }
 }

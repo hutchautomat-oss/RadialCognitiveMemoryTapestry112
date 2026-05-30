@@ -1,7 +1,8 @@
 import { useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { PointLight } from "three";
+import { PointLight, Vector3 } from "three";
+import { useSaccadeStore } from "../store/useSaccadeStore";
 import { SaccadeInstancedMesh } from "./SaccadeInstancedMesh";
 import { LassoSelection } from "./LassoSelection";
 import { GhostScaffold } from "./GhostScaffold";
@@ -30,6 +31,38 @@ function DriftingLight() {
       decay={2}
     />
   );
+}
+
+// Module-level scratch vector — zero GC pressure inside useFrame.
+const _focusVec = new Vector3();
+
+/**
+ * SearchFocus — eases the OrbitControls target toward the centroid of the
+ * current semantic-search matches for a short window after each /find, then
+ * releases control back to the user. It only moves the CAMERA TARGET, never a
+ * node. The one-shot deadline (keyed on searchEpoch) prevents the camera from
+ * being permanently pinned to the matches, which would block free orbiting.
+ */
+function SearchFocus() {
+  const controls = useThree((s) => s.controls) as
+    | { target?: Vector3; update?: () => void }
+    | null;
+  const epochRef = useRef(-1);
+  const deadlineRef = useRef(0);
+  useFrame(() => {
+    const st = useSaccadeStore.getState();
+    if (st.searchEpoch !== epochRef.current) {
+      epochRef.current = st.searchEpoch;
+      // ~900 ms of easing per new search; none on a clear (focus === null).
+      deadlineRef.current = st.searchFocus ? performance.now() + 900 : 0;
+    }
+    if (performance.now() > deadlineRef.current) return;
+    const focus = st.searchFocus;
+    if (!focus || !controls?.target) return;
+    controls.target.lerp(_focusVec.set(focus.x, focus.y, focus.z), 0.08);
+    controls.update?.();
+  });
+  return null;
 }
 
 export function Scene() {
@@ -71,6 +104,9 @@ export function Scene() {
         <sphereGeometry args={[0.1, 8, 8]} />
         <meshBasicMaterial color="#4fd1c5" />
       </mesh>
+
+      {/* Eases the camera target toward semantic-search matches (read-only). */}
+      <SearchFocus />
 
       {/* HUD bridge — samples camera/FPS/invariants into useHudStore. */}
       <HudBridge />

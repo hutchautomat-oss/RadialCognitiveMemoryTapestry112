@@ -3,6 +3,7 @@
 - [Promotion/move return values](slot-move-return-values.md) — operations that relocate a node between slots must return the destination, not the source; callers that broadcast/log the source after a move will reference a zeroed slot.
 - [RCMT unified-sphere geometry](rcmt-unified-sphere.md) — one global Fibonacci spiral + sqrt-radius foveation gives a continuous 3D sphere; per-tier sub-spirals + Z-stride do not.
 - [Audit NotebookLM pastes](notebooklm-audit.md) — the math is usually right but the rationale/labeling is often wrong; check claims against replit.md before applying.
+- [ONNX transient-status readiness trap](onnx-transient-status-readiness.md) — `isReady` enumerates transient completion statuses; adding a new worker op without adding its status silently degrades classify() to keyword fallback.
 - [Bloat-contrast counter](bloat-contrast-counter.md) — the vector-DB-equivalent counter must count EVERY injection (spawn AND reinforce), not just admissions; spawn-only understates the thesis.
 - [Idle-aware rendering](idle-aware-rendering.md) — tab-visibility gates ticker (autoPaused, separate from manual running) + Canvas frameloop (demand when hidden only, never freeze a visible scene).
 - [Batch relocation revalidation](batch-relocation-revalidation.md) — collect-candidates-then-mutate loops must revalidate each source slot before relocating, or stale/re-occupied slots get double-processed.

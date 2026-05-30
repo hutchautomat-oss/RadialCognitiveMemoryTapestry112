@@ -16,6 +16,7 @@ export type OnnxStatus =
   | "COMPILING"
   | "READY"
   | "CLASSIFY_COMPLETE"
+  | "EMBED_COMPLETE"
   | "ERROR";
 
 export interface OnnxStatusPayload {
@@ -43,6 +44,7 @@ class OnnxWorkerManagerClass {
   private worker: Worker | null = null;
   private status: OnnxStatus = "IDLE";
   private pending: { resolve: ClassifyResolve; reject: ClassifyReject } | null = null;
+  private pendingEmbed: { resolve: (v: Float32Array | null) => void; reject: ClassifyReject } | null = null;
 
   onStatusChange: ((payload: OnnxStatusPayload) => void) | null = null;
 
@@ -68,9 +70,21 @@ class OnnxWorkerManagerClass {
           this.pending = null;
         }
 
-        if (e.data.status === "ERROR" && this.pending) {
-          this.pending.reject(new Error(e.data.error ?? "Unknown ONNX error"));
-          this.pending = null;
+        if (e.data.status === "EMBED_COMPLETE" && this.pendingEmbed) {
+          this.pendingEmbed.resolve(e.data.embedding ?? null);
+          this.pendingEmbed = null;
+        }
+
+        if (e.data.status === "ERROR") {
+          const err = new Error(e.data.error ?? "Unknown ONNX error");
+          if (this.pending) {
+            this.pending.reject(err);
+            this.pending = null;
+          }
+          if (this.pendingEmbed) {
+            this.pendingEmbed.reject(err);
+            this.pendingEmbed = null;
+          }
         }
       };
 
@@ -78,6 +92,8 @@ class OnnxWorkerManagerClass {
         console.error("[OnnxWorker] Worker error:", err);
         this.pending?.reject(new Error(err.message));
         this.pending = null;
+        this.pendingEmbed?.reject(new Error(err.message));
+        this.pendingEmbed = null;
       };
 
       this.worker.postMessage({ command: "INITIALIZE_AND_WARM" });
@@ -91,7 +107,15 @@ class OnnxWorkerManagerClass {
   }
 
   get isReady(): boolean {
-    return this.status === "READY" || this.status === "CLASSIFY_COMPLETE";
+    // CLASSIFY_COMPLETE and EMBED_COMPLETE are transient "just finished an op"
+    // events fired AFTER the model is warm — both imply the pipeline is loaded
+    // and ready for the next op. Omitting EMBED_COMPLETE here would make every
+    // classify() after a /find silently fall back to the keyword heuristic.
+    return (
+      this.status === "READY" ||
+      this.status === "CLASSIFY_COMPLETE" ||
+      this.status === "EMBED_COMPLETE"
+    );
   }
 
   /**
@@ -116,6 +140,27 @@ class OnnxWorkerManagerClass {
       }
       this.pending = { resolve, reject };
       this.worker.postMessage({ command: "CLASSIFY", payload: { text } });
+    });
+  }
+
+  /**
+   * Embed text → L2-normalized 384-d vector, WITHOUT classifying or writing
+   * anything to the lattice. Used by the semantic-saccade search path. Shares
+   * the single-in-flight worker gate with classify(), so it can't race an
+   * in-progress classification. Resolves null if the model isn't warm yet.
+   */
+  embed(text: string): Promise<Float32Array | null> {
+    return new Promise((resolve, reject) => {
+      if (!this.worker || !this.isReady) {
+        resolve(null);
+        return;
+      }
+      if (this.pending || this.pendingEmbed) {
+        reject(new Error("Inference already in flight"));
+        return;
+      }
+      this.pendingEmbed = { resolve, reject };
+      this.worker.postMessage({ command: "EMBED", payload: { text } });
     });
   }
 

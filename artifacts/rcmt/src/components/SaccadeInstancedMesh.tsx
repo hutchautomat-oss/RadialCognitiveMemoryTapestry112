@@ -89,6 +89,9 @@ export function SaccadeInstancedMesh() {
   // when the lasso clears/sets selection so the highlight kicks in on the
   // very next tick.
   useSaccadeStore((s) => s.selectedSlots);
+  // Same rationale for the semantic-search overlay: re-kick render when a
+  // /find sets or clears matches so the highlight lands on the very next tick.
+  useSaccadeStore((s) => s.searchEpoch);
 
   // ── useFrame — direct VRAM mutation ─────────────────────────────
   useFrame((_state, _delta) => {
@@ -101,6 +104,10 @@ export function SaccadeInstancedMesh() {
     const spawnTime = sState.spawnTime;
     const selectedSlots = sState.selectedSlots;
     const hasSelection = selectedSlots.size > 0;
+    // Semantic-search overlay state (read non-reactively — replaced wholesale
+    // by setSearchMatches/clearSearch, not mutated in place).
+    const searchActive = sState.searchActive;
+    const searchMatches = sState.searchMatches;
     const nowMs = performance.now();
     // Task #3 per-tier state (read non-reactively for the same reason as
     // spawnTime — they're typed-array views mutated in place by the store).
@@ -170,6 +177,12 @@ export function SaccadeInstancedMesh() {
         // Lasso highlight: bump scale 1.6× and tint cyan for captured slots.
         const isSelected = hasSelection && selectedSlots.has(i);
         const selMul = isSelected ? 1.6 : 1;
+
+        // Semantic-search overlay (read-only): matches pop bigger + brighter,
+        // non-matches dim to a faint context field. NEVER relocates a node —
+        // position stays a deterministic function of slot index.
+        const isMatch = searchActive && searchMatches.has(i);
+        const searchScaleMul = searchActive && isMatch ? 1.5 : 1;
 
         // ── Task #3: promotion orbital shift ─────────────────────
         // While animStartTime[i] > 0 and t<1 we lerp position from animFromPos
@@ -244,7 +257,7 @@ export function SaccadeInstancedMesh() {
         }
 
         tempObject.position.set(px, py, pz);
-        tempObject.scale.setScalar(scale * VISUAL_RADIUS_MULT * popMul * promoMul * selMul);
+        tempObject.scale.setScalar(scale * VISUAL_RADIUS_MULT * popMul * promoMul * selMul * searchScaleMul);
         tempObject.updateMatrix();
         mesh.setMatrixAt(i, tempObject.matrix);
 
@@ -263,6 +276,19 @@ export function SaccadeInstancedMesh() {
             r = r + (fr - r) * promoFlash;
             g = g + (fg - g) * promoFlash;
             b = b + (fb - b) * promoFlash;
+          }
+          if (searchActive) {
+            if (isMatch) {
+              // Brighten matches toward white-hot (clamped at 1).
+              r = Math.min(1, r * 1.7);
+              g = Math.min(1, g * 1.7);
+              b = Math.min(1, b * 1.7);
+            } else {
+              // Dim the non-matching field so matches pre-attentively pop.
+              r *= 0.12;
+              g *= 0.12;
+              b *= 0.12;
+            }
           }
           tempColor.setRGB(r, g, b);
         }

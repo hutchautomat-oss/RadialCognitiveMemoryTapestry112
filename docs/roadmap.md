@@ -24,6 +24,7 @@ Things that are in the code today, with a pointer to verify.
 | Binary frame playback / timeline scrub                              | `mockFrames`, `setFrameIndex` in `useSaccadeStore.ts`        |
 | Hover tooltip showing source phrase                                 | `HoverTooltip.tsx`, `slotPhrase[]` (Task #13)                |
 | BVH spatial index + functional lasso selection (Task #1)            | `getCollisionBVH`/`collisionBVH` in `useSaccadeStore.ts`, `LassoSelection.tsx` |
+| Semantic saccade — read-only `/find` foveal targeting (Task #29)    | `rankBySimilarity`/`searchMatches` in `useSaccadeStore.ts`, `embedQuery` in `injectPhrase.ts`, `SearchFocus` in `Scene.tsx` |
 
 ## Planned
 
@@ -51,7 +52,7 @@ Claims from the pastes that contradict the wire format, the vitest tripwires, or
 - **64-bit Composite Clock (48-bit timestamp + 16-bit peer-ID tiebreaker).** Rejected — the timestamp is a plain Float64; peerId is not in the packet. Composite clocks buy nothing when the server is the single arbiter.
 - **Embedded peerId in every packet.** Rejected — server assigns peerId via JSON HELLO and prevents self-echoes by sender-exclusion. Embedding it wastes bytes and couples identity to every position update.
 - **Per-tier Z-stride / 5 flat Z layers.** Rejected — the lattice is a single continuous 3D sphere; tier is encoded by contiguous index range + sqrt-radius foveation, not by Z plane. Reintroducing Z-stride breaks the unified-sphere invariant.
-- **`find_safe_coordinate(layer_index, text_content)` runtime spatial search.** Rejected — position is a deterministic function of absolute slot index. A runtime search would make positions non-reproducible and break byte-stable replay.
+- **`find_safe_coordinate(layer_index, text_content)` runtime spatial search.** Rejected — position is a deterministic function of absolute slot index. A runtime search would make positions non-reproducible and break byte-stable replay. (Not to be confused with the *built* read-only semantic saccade `/find` above: that retrieves and **highlights** existing slots and moves only the camera — it never *places* or relocates a node, so it preserves byte-stable replay.)
 - **`SAFE_COMPRESSION_RATIO = 10.0` as a runtime compression algorithm inside RCMT.** Rejected — RCMT does not compress text tokens into vision tokens via an internal function. The optical compression is realized by the downstream VLM scanning the lattice foveally; that is the whole point. (The *consumer* compresses; we shape the substrate so the compression lands well.)
 - **`MAX_TOKENS_PER_VIEW = 8000` as a token-count kill-switch.** Rejected — we have an 8,000 *slot* cap, not an 8,000 *token* cap. The cap exists because of memory + single-draw-call budget, not because of a VLM attention-collapse threshold. Renaming the constant would confuse two different things.
 - **CKKS / TenSEAL homomorphic encryption as a shipped feature.** Not rejected, but **not shipped** — see Planned. The `10000.0` cleartext-matrix scale is the reserved hook; nothing else is wired up.

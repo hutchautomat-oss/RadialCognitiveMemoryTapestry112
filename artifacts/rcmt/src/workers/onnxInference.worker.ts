@@ -118,6 +118,31 @@ self.onmessage = async (e: MessageEvent) => {
       );
       return;
     }
+
+    if (command === "EMBED") {
+      // Query-only embed for the semantic-saccade search path. Returns the
+      // L2-normalized vector WITHOUT classifying or touching the lattice.
+      if (!extractor) {
+        throw new Error("EMBED called before INITIALIZE_AND_WARM completed");
+      }
+      const text: string = payload?.text ?? "";
+      if (!text.trim()) {
+        throw new Error("Empty text");
+      }
+      const t0 = performance.now();
+      const v = await embed(text);
+      const latencyMs = performance.now() - t0;
+      const embeddingCopy = new Float32Array(v);
+      self.postMessage(
+        {
+          status: "EMBED_COMPLETE",
+          latencyMs,
+          embedding: embeddingCopy,
+        },
+        { transfer: [embeddingCopy.buffer] },
+      );
+      return;
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     self.postMessage({ status: "ERROR", error: msg });

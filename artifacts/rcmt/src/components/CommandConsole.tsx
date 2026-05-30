@@ -19,6 +19,10 @@
  *                            last broadcast packet age)
  *   /lasso                 — toggle lasso mode
  *   /blast                 — purge currently-selected slots
+ *   /find <text>           — semantic saccade: spotlight memories by meaning
+ *                            (brightens matches, dims the rest, eases the
+ *                            camera toward them). Empty arg / /clear restores.
+ *                            Strictly read-only — never moves a node.
  *
  * Any text not starting with "/" is injected via the same `injectPhrase`
  * path the autonomous ticker uses — single source of truth for VRAM writes.
@@ -28,7 +32,7 @@ import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { useSaccadeStore, TIER_CAPS, STRIDE, MAX_NODES, PROMOTION_ANIM_MS } from "../store/useSaccadeStore";
 import { TIER_PLAIN, TIER_BAND } from "../lib/tierNarration";
 import { useHudStore, type HudEventType } from "../store/useHudStore";
-import { injectPhrase } from "../lib/injectPhrase";
+import { injectPhrase, embedQuery } from "../lib/injectPhrase";
 import { AXIOMS } from "../data/corpus";
 import { NetworkManager } from "../network/NetworkManager";
 import { COLOR, FONT, TIER_NAMES } from "./hud/tokens";
@@ -45,6 +49,12 @@ const VALID_EVENT_TYPES: HudEventType[] = [
 // injections rather than losing the earliest lines mid-command.
 const MAX_LOG = 40;
 
+// Cosine threshold below which a slot is not considered a /find match. MiniLM
+// cosine for genuinely related short text sits ~0.3+; lower is mostly noise.
+const FIND_THRESHOLD = 0.3;
+// How many top matches a /find spotlights + lists.
+const FIND_TOPK = 8;
+
 export function CommandConsole() {
   const [input, setInput] = useState("");
   const [log, setLog] = useState<string[]>([
@@ -54,6 +64,10 @@ export function CommandConsole() {
   ]);
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  // Monotonic token bumped by every /find and every search-clearing command.
+  // A /find captures the token before its async embed; if a newer /find or a
+  // /clear bumps it meanwhile, the stale completion refuses to re-apply matches.
+  const findSeqRef = useRef(0);
   const isLassoMode = useSaccadeStore((s) => s.isLassoMode);
   const setLassoMode = useSaccadeStore((s) => s.setLassoMode);
   const selectedSlots = useSaccadeStore((s) => s.selectedSlots);
@@ -114,6 +128,7 @@ export function CommandConsole() {
         pushLog("  /why <slot>   full provenance for one VRAM slot");
         pushLog("  /lasso        toggle box-select to mark slots");
         pushLog("  /blast        purge the currently-selected slots");
+        pushLog("  /find <text>  spotlight memories by meaning (empty to clear)");
         pushLog("TICKER — the autonomous thought loop");
         pushLog("  /pause        stop auto-injecting phrases");
         pushLog("  /resume       resume auto-injecting phrases");
@@ -131,6 +146,8 @@ export function CommandConsole() {
         pushLog("opening guided tour…");
         break;
       case "/clear":
+        findSeqRef.current++;
+        useSaccadeStore.getState().clearSearch();
         setLog(["console cleared"]);
         break;
       case "/pause":
@@ -291,6 +308,52 @@ export function CommandConsole() {
           pushLog(`blast purged ${n} slots`);
         }
         break;
+      case "/find": {
+        if (!arg.trim()) {
+          findSeqRef.current++;
+          useSaccadeStore.getState().clearSearch();
+          pushLog("search cleared");
+          break;
+        }
+        const token = ++findSeqRef.current;
+        const shown = arg.length > 48 ? arg.slice(0, 45) + "…" : arg;
+        pushLog(`searching by meaning for "${shown}"…`);
+        void (async () => {
+          try {
+            const emb = await embedQuery(arg);
+            // A newer /find or a /clear superseded this query while it was
+            // embedding — drop the stale result so it can't overwrite the
+            // current search state.
+            if (token !== findSeqRef.current) return;
+            if (!emb) {
+              pushLog("  model still warming — try again in a moment");
+              return;
+            }
+            const store = useSaccadeStore.getState();
+            const ranked = store.rankBySimilarity(emb, FIND_TOPK, FIND_THRESHOLD);
+            if (token !== findSeqRef.current) return;
+            if (ranked.length === 0) {
+              store.clearSearch();
+              pushLog(`  no memory above ${FIND_THRESHOLD.toFixed(2)} similarity`);
+              return;
+            }
+            store.setSearchMatches(ranked);
+            pushLog(
+              `  ${ranked.length} match${ranked.length > 1 ? "es" : ""} — foveating (/find or /clear to reset):`,
+            );
+            const s = useSaccadeStore.getState();
+            ranked.forEach((m) => {
+              const tier = TIER_NAMES[(s.slotTier[m.slot] ?? 1) - 1] ?? "?";
+              const phrase = s.slotPhrase[m.slot] ?? "(no source text)";
+              const trimmed = phrase.length > 40 ? phrase.slice(0, 37) + "…" : phrase;
+              pushLog(`    vram[${m.slot}] ${tier.padEnd(8)} ${m.score.toFixed(2)}  ${trimmed}`);
+            });
+          } catch (err) {
+            pushLog(`  ERROR: ${(err as Error).message}`);
+          }
+        })();
+        break;
+      }
       default:
         pushLog(`unknown command: ${cmd} (/help)`);
     }

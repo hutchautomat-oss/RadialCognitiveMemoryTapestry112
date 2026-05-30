@@ -51,6 +51,18 @@ export function injectPhrase(
   return next;
 }
 
+/**
+ * embedQuery — embed a search query through the SAME serialized chain as
+ * injectPhrase, so a /find can't collide with the autonomous ticker's
+ * in-flight classify. Strictly read-only: it never writes to the lattice or
+ * broadcasts a packet. Resolves null if the model is still warming.
+ */
+export function embedQuery(text: string): Promise<Float32Array | null> {
+  const next = chain.then(() => OnnxWorker.embed(text));
+  chain = next.catch(() => undefined);
+  return next;
+}
+
 async function doInject(
   text: string,
   source: InjectSource,

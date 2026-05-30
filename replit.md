@@ -99,6 +99,7 @@ These are the non-obvious choices that a reader couldn't infer from the code:
 - **Last-Writer-Wins by lwwTimestamp**, server-arbitrated. The server tracks the latest timestamp per `nodeIndex` and silently drops stale updates. No CRDT vector clocks — flat timestamps are sufficient because the server is the single arbiter.
 - **Binary frame playback.** The store holds `mockFrames: Float32Array[]` — each frame is a full 8k-slot snapshot. Timeline scrubbing just swaps the active frame index. Live mode = `mockFrames[0]` mutated in place.
 - **BVH with `maxLeafTris: 1`.** The picking/lasso index uses three-mesh-bvh with one proxy triangle per slot, sized to match the rendered sphere's bounding box. `triangleIndex === slotIndex` by construction. Rebuild is lazy (dirty flag), not per-frame — a 60 fps scrub would otherwise burn ~120 ms/sec on BVH builds.
+- **Semantic saccade is read-only retrieval, not placement.** `/find <text>` embeds a query via the same local ONNX worker (serialized through the `injectPhrase` chain so it can't race the ticker), cosine-ranks active slots, then brightens matches + dims the rest and eases the *camera* toward their centroid. It never moves a node, changes a tier, or touches the 28-byte wire — so byte-stable replay holds. Distinct from (and does not resurrect) the rejected `find_safe_coordinate` runtime *placement* search. Detail: `docs/roadmap.md`.
 
 ### Day-1 vs. current
 
