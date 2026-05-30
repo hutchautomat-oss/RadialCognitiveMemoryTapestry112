@@ -21,6 +21,18 @@ The downstream **consumer of the substrate** is always a VLM / multimodal AI doi
 
 For the human-readable concept breakdown, see [`docs/`](./docs/).
 
+### Vision elaboration — the Mycelial Constellation (soft anchor)
+
+A single RCMT is one brain. Any real user ends up with **many** — the same brain on several devices, and different brains for different projects that still share context. The **Mycelial Constellation** is the doctrine for how they combine: a fractal, foveated **federation** (substrates stay separate, byte-stable shards; a query assembles a *transient* cross-shard view) — explicitly **not fusion** into one bigger binary, which would break the wire-format invariants below. The keystone is fractal foveation: a VLM scans a constellation the same way it scans one lattice — dense core first, sparse rim as context — one altitude up.
+
+This is a vision elaboration (soft anchor), not a new invariant. Its main job is to separate three operations the word "stitch" conflates:
+
+- **Replication** — *same brain, many devices.* The existing WebSocket peer-merge (same-slot collision resolution, broadcasting injections to every peer's tapestry). "Many editors, one brain." This is the intra-brain layer, **not** the federation answer.
+- **Federation / composition** — *different brains, related context.* A manifest graph index of pointers above the binaries, plus lateral transfer of **source text** (re-classified into the recipient's *own* local slot — position bytes never cross brains).
+- **Query / database** — *federated shards.* A router scans the relevant shard(s) for a query; a transient composite view is not storage fusion (same as a federated SQL query is not a table merge).
+
+Full doctrine, the five mechanism-first layers, the DNA-stacking rejection, and the open cross-brain semantic-reconciliation problem: [`docs/roadmap/mycelial-constellation.md`](./docs/roadmap/mycelial-constellation.md).
+
 ## Confirmed wire-format invariants
 
 These four facts are non-negotiable. Every one is defended by a vitest tripwire in `artifacts/api-server/src/lib/lww.test.ts`. NotebookLM-style pastes have repeatedly tried to "upgrade" the wire format in ways that would break all four; do not accept such changes without rewriting the tripwires and explaining why in this section.
