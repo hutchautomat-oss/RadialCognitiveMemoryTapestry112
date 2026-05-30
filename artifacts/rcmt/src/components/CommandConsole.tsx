@@ -38,7 +38,11 @@ const VALID_EVENT_TYPES: HudEventType[] = [
   "INVARIANT_FAIL", "AXIOM", "INFO", "PAUSE", "RESUME", "ERROR",
 ];
 
-const MAX_LOG = 14;
+// Retain enough lines that the grouped `/help` output (~18 lines) is never
+// truncated by the ring. The log pane is scrollable, so a deeper buffer just
+// means the user can scroll back through a full help dump or a burst of
+// injections rather than losing the earliest lines mid-command.
+const MAX_LOG = 40;
 
 export function CommandConsole() {
   const [input, setInput] = useState("");
