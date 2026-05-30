@@ -9,3 +9,4 @@
 - [Batch relocation revalidation](batch-relocation-revalidation.md) — collect-candidates-then-mutate loops must revalidate each source slot before relocating, or stale/re-occupied slots get double-processed.
 - [Clock-domain & drain-queue pitfalls](rcmt-clock-and-drain-pitfalls.md) — animation timing uses performance.now() (not Date.now()); throttled drain loops must gate BEFORE draining or lose items.
 - [Roadmap status single source](roadmap-status-single-source.md) — build status lives ONLY in docs/roadmap.md; replit.md points to it, never duplicates (the copy drifted stale).
+- [Comets vs ghost scaffold](rcmt-comet-vs-scaffold.md) — promotion comets must be amber + additive (not tier-colored) or the teal scaffold washes them out along the core path; no error, only by-eye catches it.

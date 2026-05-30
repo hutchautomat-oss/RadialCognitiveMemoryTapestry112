@@ -16,21 +16,31 @@
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
+  AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
+  Color,
   LineBasicMaterial,
 } from "three";
 import {
   useSaccadeStore,
   MAX_NODES,
   PROMOTION_ANIM_MS,
-  TIER_RGB,
 } from "../store/useSaccadeStore";
 
 /** A trace lives a little longer than the migration animation so there's a
  *  short afterglow once the node settles into its new slot. */
 const TRACE_MS = 1100;
 const MAX_TRACES = 96;
+
+// Comets are AMBER, not tier-colored, by design: the GhostScaffold paints a
+// cool teal field densest exactly along the inward path a promotion travels, so
+// a tier-hued (often teal-family) trail blends in and vanishes. A single hot
+// amber, drawn with AdditiveBlending, glows OVER the scaffold and reads as an
+// unmistakable comet streaking toward the core — the documented intent.
+const COMET_AMBER = new Color("#ffae3c");
+// Dim tail multiplier at the origin; the head sits at full brightness.
+const TAIL_MUL = 0.16;
 
 interface Trace {
   fx: number;
@@ -40,7 +50,6 @@ interface Trace {
   ty: number;
   tz: number;
   start: number;
-  tier: number;
 }
 
 /** Cubic ease-in-out — matches SaccadeInstancedMesh's promotion lerp so the
@@ -74,7 +83,8 @@ export function PromotionTraces() {
         vertexColors: true,
         transparent: true,
         depthWrite: false,
-        opacity: 0.85,
+        blending: AdditiveBlending,
+        opacity: 1,
       }),
     [],
   );
@@ -102,7 +112,6 @@ export function PromotionTraces() {
               ty: to[i * 3 + 1],
               tz: to[i * 3 + 2],
               start: st,
-              tier: s.slotTier[i],
             });
           }
         } else if (lastStart[i] !== 0) {
@@ -141,13 +150,15 @@ export function PromotionTraces() {
       posArr[base + 4] = hy;
       posArr[base + 5] = hz;
 
-      const idx = Math.max(0, Math.min(4, t.tier - 1));
-      const [cr, cg, cb] = TIER_RGB[idx];
-      // Dim tail at the origin, bright head at the node — reads as a comet
-      // streaking toward the core.
-      colArr[base + 0] = cr * fade * 0.22;
-      colArr[base + 1] = cg * fade * 0.22;
-      colArr[base + 2] = cb * fade * 0.22;
+      // Dim amber tail at the origin, bright amber head at the node — reads as
+      // a comet streaking toward the core. AdditiveBlending makes the head glow
+      // OVER the teal scaffold instead of blending into it.
+      const cr = COMET_AMBER.r;
+      const cg = COMET_AMBER.g;
+      const cb = COMET_AMBER.b;
+      colArr[base + 0] = cr * fade * TAIL_MUL;
+      colArr[base + 1] = cg * fade * TAIL_MUL;
+      colArr[base + 2] = cb * fade * TAIL_MUL;
       colArr[base + 3] = cr * fade;
       colArr[base + 4] = cg * fade;
       colArr[base + 5] = cb * fade;
