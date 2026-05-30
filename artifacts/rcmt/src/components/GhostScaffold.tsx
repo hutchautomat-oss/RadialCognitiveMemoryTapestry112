@@ -39,6 +39,15 @@ import {
   GOLDEN_ANGLE,
   NODE_DENSITY_BUBBLE,
 } from "../store/useSaccadeStore";
+import { useHudStore, type ScaffoldIntensity } from "../store/useHudStore";
+
+// Brightness/size multiplier per user-selected intensity. `off` short-circuits
+// to no render, so it never reaches the shader.
+const INTENSITY_FACTOR: Record<ScaffoldIntensity, number> = {
+  off: 0,
+  subtle: 1.0,
+  full: 1.7,
+};
 
 // Core → rim color ramp. Cool teal at the dense core (high foveal weight),
 // deep desaturated teal at the sparse rim. Kept low-chroma so the scaffold
@@ -101,6 +110,7 @@ function buildScaffold(): ScaffoldAttrs {
 const VERT = /* glsl */ `
   uniform float uTime;
   uniform float uPixelRatio;
+  uniform float uIntensity;
   attribute vec3 aColor;
   attribute float aSize;
   attribute float aAlpha;
@@ -112,11 +122,13 @@ const VERT = /* glsl */ `
     // Slow, low-amplitude breathing so the empty lattice feels alive without
     // distracting from live nodes. Per-point phase (aSeed) avoids a flat pulse.
     float shimmer = 0.85 + 0.15 * sin(uTime * 0.6 + aSeed);
-    vAlpha = aAlpha * shimmer;
+    vAlpha = aAlpha * shimmer * uIntensity;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     // Clamp to avoid pathological overdraw spikes when a core point is very
-    // close to the camera (e.g. zoomed all the way in).
-    gl_PointSize = min(aSize * uPixelRatio * (230.0 / -mv.z), 48.0);
+    // close to the camera (e.g. zoomed all the way in). A gentle size bump at
+    // higher intensity helps the "full" setting read without doubling overdraw.
+    float sizeBoost = 0.8 + 0.2 * uIntensity;
+    gl_PointSize = min(aSize * uPixelRatio * (230.0 / -mv.z) * sizeBoost, 48.0);
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -153,6 +165,7 @@ export function GhostScaffold() {
         uniforms: {
           uTime: { value: 0 },
           uPixelRatio: { value: pixelRatio },
+          uIntensity: { value: 1 },
         },
         vertexShader: VERT,
         fragmentShader: FRAG,
@@ -163,12 +176,25 @@ export function GhostScaffold() {
     [pixelRatio],
   );
 
+  // User-controlled visibility. `off` hides via `visible={false}` so three skips
+  // the draw call without unmounting the object — that keeps the one-time
+  // geometry/material instances alive across toggles (a `return null` would let
+  // R3F auto-dispose them, breaking the next on-toggle). The factor also drives a
+  // brightness/size uniform. Subscribing here re-renders only on the (rare)
+  // toggle — never per frame.
+  const intensity = useHudStore((s) => s.scaffoldIntensity);
+  const factor = INTENSITY_FACTOR[intensity];
+  const visible = factor > 0;
+  material.uniforms.uIntensity.value = factor;
+
   useFrame(({ clock }) => {
+    if (!visible) return;
     material.uniforms.uTime.value = clock.getElapsedTime();
   });
 
   return (
     <points
+      visible={visible}
       geometry={geometry}
       material={material}
       frustumCulled={false}

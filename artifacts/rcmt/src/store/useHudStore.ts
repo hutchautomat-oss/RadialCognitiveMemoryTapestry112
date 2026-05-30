@@ -141,6 +141,39 @@ export function hudModePreferenceExists(): boolean {
 
 const initialHudMode = loadHudMode();
 
+/**
+ * Structural-lattice (GhostScaffold) visibility. Pure render-side chrome — the
+ * 8,000 rest positions drawn as a foveal point cloud before/under live nodes.
+ * `off` hides it entirely (no draw call); `subtle` is the default look;
+ * `full` brightens + slightly enlarges it for evaluators who want the capacity
+ * envelope to read strongly. Never touches the lattice data or the wire format.
+ */
+export type ScaffoldIntensity = "off" | "subtle" | "full";
+
+const SCAFFOLD_KEY = "rcmt:hud:scaffold:v1";
+
+function loadScaffoldIntensity(): ScaffoldIntensity {
+  if (typeof window === "undefined") return "subtle";
+  try {
+    const raw = window.localStorage.getItem(SCAFFOLD_KEY);
+    if (raw === "off" || raw === "subtle" || raw === "full") return raw;
+  } catch {
+    // Private-mode / quota failures: fall back to the default.
+  }
+  return "subtle";
+}
+
+function saveScaffoldIntensity(v: ScaffoldIntensity) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SCAFFOLD_KEY, v);
+  } catch {
+    // Non-fatal — the control still works for the current session.
+  }
+}
+
+const initialScaffoldIntensity = loadScaffoldIntensity();
+
 export type FlashEdge = "top" | "bottom" | "left" | "right";
 
 /** A peripheral-motion marker: a fading bar pinned to a viewport edge in the
@@ -201,6 +234,9 @@ interface HudStore {
   setHudMode: (mode: HudMode) => void;
   onboardingOpen: boolean;
   setOnboardingOpen: (open: boolean) => void;
+
+  scaffoldIntensity: ScaffoldIntensity;
+  setScaffoldIntensity: (v: ScaffoldIntensity) => void;
 }
 
 const emptyInvariant = (): InvariantState => ({
@@ -330,6 +366,12 @@ export const useHudStore = create<HudStore>((set, get) => ({
   // their saved mode; `/tour` re-opens the overlay on demand.
   onboardingOpen: !initialHudMode.hasPreference,
   setOnboardingOpen: (open) => set({ onboardingOpen: open }),
+
+  scaffoldIntensity: initialScaffoldIntensity,
+  setScaffoldIntensity: (v) => {
+    saveScaffoldIntensity(v);
+    set({ scaffoldIntensity: v });
+  },
 }));
 
 /** Module-level shortcut so non-React modules can push events without subscribing. */
