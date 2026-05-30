@@ -4,7 +4,11 @@
  * LATTICE control — show/dial the structural GhostScaffold (pure render chrome).
  */
 
-import { useHudStore, type ScaffoldIntensity } from "../../store/useHudStore";
+import {
+  useHudStore,
+  type ScaffoldIntensity,
+  type CameraMode,
+} from "../../store/useHudStore";
 import { COLOR, FONT } from "./tokens";
 import { HudCard } from "./HudCard";
 
@@ -12,6 +16,11 @@ const SCAFFOLD_SEGMENTS: { value: ScaffoldIntensity; label: string }[] = [
   { value: "off", label: "OFF" },
   { value: "subtle", label: "DIM" },
   { value: "full", label: "FULL" },
+];
+
+const CAMERA_SEGMENTS: { value: CameraMode; label: string }[] = [
+  { value: "orbit", label: "ORBIT" },
+  { value: "fly", label: "FLY" },
 ];
 
 function ScaffoldControl() {
@@ -49,6 +58,62 @@ function ScaffoldControl() {
               onClick={() => setIntensity(value)}
               aria-pressed={active}
               title="Show, dim, or hide the empty structural lattice"
+              style={{
+                border: "none",
+                background: active ? COLOR.accent : "transparent",
+                color: active ? COLOR.bgSolid : COLOR.textDim,
+                cursor: "pointer",
+                fontFamily: FONT,
+                fontSize: 9,
+                letterSpacing: 0.6,
+                padding: "2px 8px",
+                lineHeight: 1.2,
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CameraModeControl() {
+  const mode = useHudStore((s) => s.cameraMode);
+  const setMode = useHudStore((s) => s.setCameraMode);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginTop: 4,
+        paddingTop: 5,
+        borderTop: `1px dotted ${COLOR.border}`,
+      }}
+    >
+      <span style={{ color: COLOR.textMuted, fontSize: 9, letterSpacing: 1 }}>
+        FLIGHT
+      </span>
+      <div
+        style={{
+          display: "flex",
+          border: `1px solid ${COLOR.border}`,
+          borderRadius: 2,
+          overflow: "hidden",
+        }}
+      >
+        {CAMERA_SEGMENTS.map(({ value, label }) => {
+          const active = mode === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setMode(value)}
+              aria-pressed={active}
+              title="Orbit around the lattice, or fly through it freely (hold-drag to look, WASD to move)"
               style={{
                 border: "none",
                 background: active ? COLOR.accent : "transparent",
@@ -117,6 +182,7 @@ export function CameraReadout() {
           <div style={{ color: COLOR.textMuted }}>awaiting camera…</div>
         )}
         <ScaffoldControl />
+        <CameraModeControl />
       </div>
     </HudCard>
   );

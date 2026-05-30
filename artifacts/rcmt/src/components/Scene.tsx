@@ -1,7 +1,8 @@
 import { useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, FlyControls } from "@react-three/drei";
 import { PointLight, Vector3 } from "three";
+import { useHudStore } from "../store/useHudStore";
 import { useSaccadeStore } from "../store/useSaccadeStore";
 import { SaccadeInstancedMesh } from "./SaccadeInstancedMesh";
 import { LassoSelection } from "./LassoSelection";
@@ -66,23 +67,40 @@ function SearchFocus() {
 }
 
 export function Scene() {
+  const cameraMode = useHudStore((s) => s.cameraMode);
   return (
     <>
-      <OrbitControls
-        makeDefault
-        enableDamping
-        dampingFactor={0.06}
-        rotateSpeed={0.5}
-        zoomSpeed={0.8}
-        // zoomToCursor dollies toward the point under the cursor and slides the
-        // orbit target with it, so flying into the core heads exactly where the
-        // user is pointing instead of pivoting around the origin and pitching
-        // the camera up "out of the mandala". Pairs with a small minDistance so
-        // you can get right inside the dense foveal core to pick a single node.
-        zoomToCursor
-        minDistance={1.5}
-        maxDistance={200}
-      />
+      {cameraMode === "fly" ? (
+        // Immersive "pilot through the lattice" camera. dragToLook keeps plain
+        // clicks free for node selection (only a held drag steers the view), so
+        // the click-to-select path stays usable. WASD/RF move, Q/E roll, arrows
+        // look. No minDistance, so you can fly straight through the dense core.
+        // NOTE: FlyControls binds movement keys at the document level, so typing
+        // WASD into the Command Console while in fly mode would also nudge the
+        // camera — switch back to ORBIT (the default) to type.
+        <FlyControls
+          makeDefault
+          movementSpeed={12}
+          rollSpeed={0.4}
+          dragToLook
+        />
+      ) : (
+        <OrbitControls
+          makeDefault
+          enableDamping
+          dampingFactor={0.06}
+          rotateSpeed={0.5}
+          zoomSpeed={0.8}
+          // zoomToCursor dollies toward the point under the cursor and slides the
+          // orbit target with it, so flying into the core heads exactly where the
+          // user is pointing instead of pivoting around the origin and pitching
+          // the camera up "out of the mandala". Pairs with a small minDistance so
+          // you can get right inside the dense foveal core to pick a single node.
+          zoomToCursor
+          minDistance={1.5}
+          maxDistance={200}
+        />
+      )}
 
       <ambientLight intensity={0.06} color="#06090c" />
       <DriftingLight />

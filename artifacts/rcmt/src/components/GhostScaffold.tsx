@@ -117,18 +117,29 @@ const VERT = /* glsl */ `
   attribute float aSeed;
   varying vec3 vColor;
   varying float vAlpha;
+  // Auto-declutter band (camera-space depth, world units): points nearer than
+  // NEAR_GONE are fully faded; opacity ramps back to full by NEAR_FULL.
+  const float NEAR_GONE = 1.5;
+  const float NEAR_FULL = 7.0;
   void main() {
     vColor = aColor;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    float depth = -mv.z;
+    // As the camera pushes into the dense core, dots right in front of it
+    // dissolve and ramp back to full by NEAR_FULL — opening a viewing tunnel
+    // instead of a wall of overlapping points. Pure camera-distance effect: it
+    // never touches the per-point foveal size/brightness ramp, so Foveal
+    // Gradient Integrity still holds at normal viewing range.
+    float nearFade = smoothstep(NEAR_GONE, NEAR_FULL, depth);
     // Slow, low-amplitude breathing so the empty lattice feels alive without
     // distracting from live nodes. Per-point phase (aSeed) avoids a flat pulse.
     float shimmer = 0.85 + 0.15 * sin(uTime * 0.6 + aSeed);
-    vAlpha = aAlpha * shimmer * uIntensity;
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vAlpha = aAlpha * shimmer * uIntensity * nearFade;
     // Clamp to avoid pathological overdraw spikes when a core point is very
     // close to the camera (e.g. zoomed all the way in). A gentle size bump at
     // higher intensity helps the "full" setting read without doubling overdraw.
     float sizeBoost = 0.8 + 0.2 * uIntensity;
-    gl_PointSize = min(aSize * uPixelRatio * (230.0 / -mv.z) * sizeBoost, 48.0);
+    gl_PointSize = min(aSize * uPixelRatio * (230.0 / depth) * sizeBoost, 48.0);
     gl_Position = projectionMatrix * mv;
   }
 `;

@@ -174,6 +174,38 @@ function saveScaffoldIntensity(v: ScaffoldIntensity) {
 
 const initialScaffoldIntensity = loadScaffoldIntensity();
 
+/**
+ * Camera navigation mode. `orbit` (default) is the OrbitControls camera that
+ * swings around a target point. `fly` swaps in a free first-person/fly camera
+ * so the user can pilot inward through the core and turn to look around in
+ * place. Pure navigation chrome — never touches lattice data or the wire format.
+ */
+export type CameraMode = "orbit" | "fly";
+
+const CAMERA_MODE_KEY = "rcmt:hud:camera:v1";
+
+function loadCameraMode(): CameraMode {
+  if (typeof window === "undefined") return "orbit";
+  try {
+    const raw = window.localStorage.getItem(CAMERA_MODE_KEY);
+    if (raw === "orbit" || raw === "fly") return raw;
+  } catch {
+    // Private-mode / quota failures: fall back to the default.
+  }
+  return "orbit";
+}
+
+function saveCameraMode(v: CameraMode) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CAMERA_MODE_KEY, v);
+  } catch {
+    // Non-fatal — the control still works for the current session.
+  }
+}
+
+const initialCameraMode = loadCameraMode();
+
 export type FlashEdge = "top" | "bottom" | "left" | "right";
 
 /** A peripheral-motion marker: a fading bar pinned to a viewport edge in the
@@ -237,6 +269,9 @@ interface HudStore {
 
   scaffoldIntensity: ScaffoldIntensity;
   setScaffoldIntensity: (v: ScaffoldIntensity) => void;
+
+  cameraMode: CameraMode;
+  setCameraMode: (v: CameraMode) => void;
 }
 
 const emptyInvariant = (): InvariantState => ({
@@ -371,6 +406,12 @@ export const useHudStore = create<HudStore>((set, get) => ({
   setScaffoldIntensity: (v) => {
     saveScaffoldIntensity(v);
     set({ scaffoldIntensity: v });
+  },
+
+  cameraMode: initialCameraMode,
+  setCameraMode: (v) => {
+    saveCameraMode(v);
+    set({ cameraMode: v });
   },
 }));
 

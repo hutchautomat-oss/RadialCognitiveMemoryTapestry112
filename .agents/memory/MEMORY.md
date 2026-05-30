@@ -10,3 +10,4 @@
 - [Clock-domain & drain-queue pitfalls](rcmt-clock-and-drain-pitfalls.md) — animation timing uses performance.now() (not Date.now()); throttled drain loops must gate BEFORE draining or lose items.
 - [Roadmap status single source](roadmap-status-single-source.md) — build status lives ONLY in docs/roadmap.md; replit.md points to it, never duplicates (the copy drifted stale).
 - [Comets vs ghost scaffold](rcmt-comet-vs-scaffold.md) — promotion comets must be amber + additive (not tier-colored) or the teal scaffold washes them out along the core path; no error, only by-eye catches it.
+- [Near-fade declutter vs gradient](rcmt-nearfade-declutter.md) — scaffold near-fade is a camera-distance effect, allowed under Foveal Gradient Integrity; never let a declutter/LOD idea become a distance-independent uniform-density remap.
