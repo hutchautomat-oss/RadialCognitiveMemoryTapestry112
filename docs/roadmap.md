@@ -31,6 +31,7 @@ Things we have not built but intend to. Each has its own one-page spec in `docs/
 - **[Variable node radii](./roadmap/variable-node-radii.md)** — make a slot's visual radius scale with the length of the source phrase, so "long thought" occupies more visual real estate. Matches the optical-compression metaphor and gives a VLM a stronger foveal signal for high-content slots.
 - **[Epsilon Fibonacci packing correction](./roadmap/epsilon-fibonacci-packing.md)** — apply the well-known epsilon-offset variant of the spherical Fibonacci lattice for ~8% nearest-neighbor improvement near the poles, without changing the wire format.
 - **[`sovereign_save_key.bin` persistence](./roadmap/sovereign-save-key.md)** — write the 224 KB in-memory tapestry to disk on shutdown and re-load it on boot, so the lattice survives a refresh.
+- **[Log-polar cell-sizing](./roadmap/log-polar-cell-sizing.md)** — vary resolvable cell size by radius (cortical magnification) so the dense core stays within a VLM's spatial-acuity budget `M = (R/s)²` and never needs zoom, while preserving the foveal gradient. First step: measure the acuity constant `s` empirically via a confirmation/validation harness that also benchmarks image-tokens-per-query against a text-RAG baseline.
 - BVH spatial index over the 8k mesh + functional lasso path (Task #1) — *see existing task plan.*
 - Visible synapse edges between semantically related nodes — *Day-1 metaphor restoration.*
 - Semantic placement within a tier shell (cosine-similarity ordering instead of pure insertion index).
