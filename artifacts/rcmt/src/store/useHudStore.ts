@@ -7,7 +7,7 @@
  *     R3F canvas via the HudBridge component.
  *   - Live FPS sample (~4 Hz).
  *   - Network telemetry (peer id, peer count, last HELLO age, lww rejects).
- *   - Six invariant signals + their detail lines.
+ *   - Five invariant signals + their detail lines.
  *   - Thought ticker state (running, period_ms, last fire timestamp, total
  *     fired, currently busy bool, paused-by-user).
  *
@@ -58,8 +58,7 @@ export type InvariantId =
   | "tier_contiguity"
   | "fifo"
   | "bvh_proxy"
-  | "foveation"
-  | "parity";
+  | "foveation";
 
 export interface InvariantState {
   ok: boolean;
@@ -178,7 +177,6 @@ export const useHudStore = create<HudStore>((set, get) => ({
     fifo: emptyInvariant(),
     bvh_proxy: emptyInvariant(),
     foveation: emptyInvariant(),
-    parity: emptyInvariant(),
   },
   setInvariant: (id, ok, detail) => {
     const prev = get().invariants[id];

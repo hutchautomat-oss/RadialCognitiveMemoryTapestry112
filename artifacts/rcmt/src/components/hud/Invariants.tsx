@@ -1,11 +1,10 @@
 /**
- * INVARIANTS — top-center horizontal strip of six dots. Each one is a
+ * INVARIANTS — top-center horizontal strip of five dots. Each one is a
  * load-bearing fact of the grounding-file format. Green = nominal, red =
  * the format just broke. Hover to read the detail line.
  *
- * Two of the six are expected to be informative red until other tasks land
- * (parity flips green when Task #4 retires the legacy graph). The whole
- * point of the strip is to make those drifts visible, not hidden.
+ * The whole point of the strip is to make format drift visible, not hidden:
+ * a red dot means the wire/geometry contract just broke.
  */
 
 import { useHudStore, type InvariantId } from "../../store/useHudStore";
@@ -17,7 +16,6 @@ const ORDER: { id: InvariantId; label: string }[] = [
   { id: "fifo", label: "FIFO" },
   { id: "bvh_proxy", label: "BVH" },
   { id: "foveation", label: "FOVEA" },
-  { id: "parity", label: "PARITY" },
 ];
 
 export function Invariants() {

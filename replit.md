@@ -4,7 +4,7 @@
 
 RCMT is an **optical-compression grounding substrate** for downstream AI consumers. Instead of storing meaning as high-dimensional embeddings in a vector database, it stores meaning as **positions in a 3D foveated lattice** that a vision-capable model reads the same way a human eye reads a scene — **foveally**: dense, high-confidence regions first, sparse peripheral regions as context. The Fact→Dream tier gradient encodes a **scientific-method epistemology** directly into the geometry: irreducible Facts sit at the dense core (highest foveal weight), speculative Dreams disperse to the sparse rim (lowest). A model scanning the lattice inherits the epistemic prior for free — the shape *is* the meaning.
 
-The whole 8,000-slot tapestry fits in **224 KB on the wire** and is byte-stable across model upgrades because no embedding lives in the substrate. Conventional RAG drifts when re-embedded; RCMT cannot drift, because positions are deterministic from slot index + insertion order. Capacity is constant by construction (8,000 slots forever), so the binary doesn't bloat over a year of use. Six runtime invariants and a vitest tripwire suite physically prevent the wire format from changing — drift is observable, not silent.
+The whole 8,000-slot tapestry fits in **224 KB on the wire** and is byte-stable across model upgrades because no embedding lives in the substrate. Conventional RAG drifts when re-embedded; RCMT cannot drift, because positions are deterministic from slot index + insertion order. Capacity is constant by construction (8,000 slots forever), so the binary doesn't bloat over a year of use. Five runtime invariants and a vitest tripwire suite physically prevent the wire format from changing — drift is observable, not silent.
 
 This is meant to behave like a brain's visual cortex reading a memory hierarchy: dense, append-only, peer-mergeable, picked up mid-thought by any agent that loads the binary.
 
@@ -36,7 +36,7 @@ These four facts are non-negotiable. Every one is defended by a vitest tripwire 
 
 ## Confirmed geometry invariant — Foveal Gradient Integrity
 
-The four facts above protect the *bytes*. This one protects the *shape* — and in RCMT the shape **is** the meaning, so it is equally non-negotiable. It is a *design* invariant, not one of the six runtime HUD dots: it constrains every future geometry / placement / render decision.
+The four facts above protect the *bytes*. This one protects the *shape* — and in RCMT the shape **is** the meaning, so it is equally non-negotiable. It is a *design* invariant, not one of the five runtime HUD dots: it constrains every future geometry / placement / render decision.
 
 - **Foveal Gradient Integrity.** The density gradient — dense, high-confidence Facts at the core; sparse, speculative Dreams at the rim — *is* the encoded Fact→Dream epistemology. Any change to placement, cell-sizing, or render mapping must **vary cell size to preserve the gradient, never flatten it into uniform density.**
   *Why:* A downstream VLM inherits the epistemic prior for free only because the densest visual signal coincides with the most-trusted memories. Flattening to uniform density would win a local engineering argument (e.g. "guarantee no zoom") while erasing the prior — and the whole optical-compression thesis collapses with it.
@@ -77,14 +77,13 @@ This is meant to behave like a brain: dense, append-only, peer-mergeable, picked
 
 - `artifacts/rcmt/src/lib/injectPhrase.ts` — **the single canonical VRAM write path** for a text phrase. Serializes all callers via a module-level Promise chain (the ONNX worker accepts only one in-flight classify). Calls ONNX → `injectLiveIntentVector` → broadcast → HUD events. Both the CommandConsole and the autonomous ThoughtTicker route through this; nothing else writes to the lattice except direct store actions like `seedFromNodes` / scrub.
 - `artifacts/rcmt/src/data/corpus.ts` — 7 boot **AXIOMS** (Fact-tier seeds for the first 4.2 s of operation) + ~150 PHRASE_CORPUS entries the ticker drips out at a jittered 2-4 s cadence.
-- `artifacts/rcmt/src/store/useHudStore.ts` — telemetry store. Bounded event ring (500 cap), camera sample, FPS, packets-in/out + rates, ticker state (running/period/jitter/busy/totalFired), and the 6 invariants strip. Has NO import of saccade/network stores → no circular-dep risk.
-- `artifacts/rcmt/src/lib/invariants.ts` — runs the 6 grounding-file invariants (`stride`, `tier_contiguity`, `fifo`, `bvh_proxy`, `foveation`, `parity`). Sampled ~1 Hz by `HudBridge`.
+- `artifacts/rcmt/src/store/useHudStore.ts` — telemetry store. Bounded event ring (500 cap), camera sample, FPS, packets-in/out + rates, ticker state (running/period/jitter/busy/totalFired), and the 5 invariants strip. Has NO import of saccade/network stores → no circular-dep risk.
+- `artifacts/rcmt/src/lib/invariants.ts` — runs the 5 grounding-file invariants (`stride`, `tier_contiguity`, `fifo`, `bvh_proxy`, `foveation`). Sampled ~1 Hz by `HudBridge`.
 - `artifacts/rcmt/src/components/ThoughtTicker.tsx` — invisible component. 1.5 s kickoff → axiom seed (600 ms gap) → jittered loop. Pause-aware via `useHudStore.ticker.running`; busy-aware via `ticker.busy`; HMR-safe teardown.
 - `artifacts/rcmt/src/components/GhostScaffold.tsx` — single-draw `Points` cloud of all 8 000 rest positions. Built once via `useMemo`, no per-frame work. Makes capacity + foveation visible before any phrase lands.
 - `artifacts/rcmt/src/components/HudBridge.tsx` — lives INSIDE the R3F Canvas. Samples camera/FPS at 4 Hz and runs invariants at 1 Hz into `useHudStore`. Never writes 60 Hz state (would tank FPS).
-- `artifacts/rcmt/src/components/hud/` — aerospace EFIS HUD cards: SyncCore (link/engine/packets/ticker/fps), Ontology (per-tier bars + 10 s Δ counts), EventStream (last 22 of the 500-cap ring), Invariants (top-center 6-dot strip), CameraReadout. Tokens in `tokens.ts` (low-chroma palette, 1 px hairlines, mono font).
+- `artifacts/rcmt/src/components/hud/` — aerospace EFIS HUD cards: SyncCore (link/engine/packets/ticker/fps), Ontology (per-tier bars + 10 s Δ counts), EventStream (last 22 of the 500-cap ring), Invariants (top-center 5-dot strip), CameraReadout. Tokens in `tokens.ts` (low-chroma palette, 1 px hairlines, mono font).
 - `artifacts/rcmt/src/store/useSaccadeStore.ts` — **VRAM source of truth.** The 8k-slot Float32Array (7 floats per slot: x, y, z, r, g, b, scale), starburst spawn timestamps, FIFO `vacantSlots`, frame playback, and the live ontology injection action. `injectLiveIntentVector` returns `InjectOutcome { index, kind: 'spawn'|'reinforce'|'evict'|'promote', tier }` so the inject pipeline can emit precise events.
-- `artifacts/rcmt/src/store/useStore.ts` — **Legacy graph (retiring).** Holds the early `nodes` array still wired into a few interaction paths. After Task #4 lands, this file goes away.
 - `artifacts/rcmt/src/components/SaccadeInstancedMesh.tsx` — single-draw-call renderer for the 8k lattice. Reads the active frame each tick, writes per-instance matrices and colors into the InstancedMesh.
 - `artifacts/rcmt/src/components/CommandConsole.tsx` — terminal-style overlay for typing phrases, running `/lasso`, `/blast`, `/clear`, `/help`.
 - `artifacts/rcmt/src/components/Timeline.tsx` — binary-frame scrubber.
@@ -115,7 +114,6 @@ The Day-1 prototype encoded meaning along three labeled semantic axes — Catego
 
 ## Gotchas
 
-- **`useStore.nodes` (legacy) and `useSaccadeStore.mockFrames` (VRAM) live in two namespaces and do NOT unify.** A node added via the console exists in both, at different indices, with different lifecycles. `SaccadeInstancedMesh` bridges them via `seedFromNodes` on mount and `updateLiveFrame` on every `liveNodes` change, so `addNode` *does* still render today — but via a snapshot copy, not by writing the VRAM directly. New write paths should prefer `injectLiveIntentVector` so they participate in slot/tier ontology and starburst animation. Task #4 will retire the legacy graph; until then, treat them as parallel.
 - **`NodeCloud.tsx` still exists but is not mounted.** `Scene.tsx` only renders `SaccadeInstancedMesh`. Don't add features to `NodeCloud` — it's dead code on the render path even though the file lives in the tree. Task #1 will delete the file.
 - **BVH proxy bounding radius must be `0.15 * scale`.** `SaccadeInstancedMesh` uses `SphereGeometry(1, 8, 8)` scaled by `scale * 0.15 * popMul`. Any other multiplier desyncs picking from visuals. This invariant lands with Task #1's BVH index.
 - **`vacantSlots` is currently a single global FIFO across all 8k slots.** Dream churn can evict facts — broken by the cognitive metaphor. Task #3 introduces per-tier caches with promotion-on-reinforcement to fix this.
@@ -126,7 +124,7 @@ The Day-1 prototype encoded meaning along three labeled semantic axes — Catego
 - **`OnnxWorker.onStatusChange` has a SINGLE owner.** SyncCore subscribes to drive the ENGINE pill. Do NOT register a second handler in another component — the last writer silently wins and you'll lose the pill. If another consumer needs status, poll `OnnxWorker.currentStatus` instead (App does this on a 1 s interval to surface ERROR/READY transitions into the event ring).
 - **`OnnxWorker.initialize()` must be called once at boot** (it is, from `App.useEffect`). Without it, every `OnnxWorker.classify()` silently falls back to a keyword heuristic — injections succeed and look fine, but the model never runs. Don't remove the initialize call.
 - **All phrase injection must go through `injectPhrase`.** The console, ticker, and `/axioms` re-seed all use it. New entry points (file ingestion, peer-driven injects, etc.) must too — otherwise the ONNX single-in-flight constraint races and the HUD event ring loses canonical SPAWN/EVICT/PROMOTE typing.
-- **Boot seed is empty by design.** `useStore.buildDemoNodes` returns `[]`. The ThoughtTicker injects the 7 axioms then drips the corpus — the lattice grows organically. If you re-add a synchronous boot dump, you'll bypass the ontology path and the ghost-scaffold-reveal effect.
+- **Boot seed is empty by design.** The lattice boots with no synchronous node dump — only the dim ghost scaffold is visible. The ThoughtTicker injects the 7 axioms then drips the corpus — the lattice grows organically. If you re-add a synchronous boot dump, you'll bypass the ontology path and the ghost-scaffold-reveal effect.
 - **Vitest suite pins invariants, not coverage.** `pnpm test` exercises geometry (foveation radius, golden angle, tier contiguity, no-Z-stride), per-tier FIFO isolation + tier-scoped eviction, the decay-vs-replay gate, and the 28-byte CRVM/LWW protocol (including a tripwire that the packet has no embedded peerId/composite clock). New tests should correspond to a decision worth defending — not coverage theater. The 28-byte arbitration logic lives in `artifacts/api-server/src/lib/lww.ts` so the server and the tests share one wire-format module.
 
 ## Roadmap
@@ -134,7 +132,6 @@ The Day-1 prototype encoded meaning along three labeled semantic axes — Catego
 Not in the current build; sequenced for future tasks:
 
 - **Per-tier caches with promotion-on-reinforcement** (Task #3) — replaces the global FIFO. Each ontology tier gets its own size cap, decay rate, and reinforcement counter; promoted nodes migrate inward with an animation.
-- **Retire `useStore.nodes`** (Task #4) — one source of truth.
 - **BVH spatial index over the 8k mesh and a functional lasso path** (Task #1) — the current lasso lives on the legacy (unmounted) `NodeCloud` component, so lasso is effectively non-functional today. The "BVH Raycast" tagline in the app header is aspirational until Task #1 lands.
 - **Visible synapse edges** — line segments drawn between semantically related nodes, restoring the "connective tissue" metaphor from Day-1.
 - **Semantic placement within a shell** — order nodes inside a tier by cosine similarity to a tier-anchor instead of by Fibonacci insertion index.
@@ -155,7 +152,7 @@ Not in the current build; sequenced for future tasks:
 
 The UI is laid out as an EFIS-style telemetry suite around the 3D lattice. Six fixed cards plus an invisible ticker:
 
-- **INVARIANTS strip** (top-center) — six dots: `STRIDE / TIERS / FIFO / BVH / FOVEA / PARITY`. Green = nominal, red = the grounding-file format just broke. **`parity` is now green:** the legacy `useStore.nodes` graph has been retired, so the VRAM frame buffer is the single source of truth and the dot simply confirms a live frame buffer exists (there is no second graph left to drift against).
+- **INVARIANTS strip** (top-center) — five dots: `STRIDE / TIERS / FIFO / BVH / FOVEA`. Green = nominal, red = the grounding-file format just broke. The legacy `useStore.nodes` graph has been retired, so the VRAM frame buffer is the single source of truth — there is no longer a `parity` dot, because there is no second graph left to drift against.
 - **SYNC CORE** (top-left) — LINK (sync/local), ENGINE (DL/WARM/READY/ERR), packets ↓↑ with /s rate, TICKER auto/paused + cadence + Σ fired, FPS.
 - **ONTOLOGY** (top-right) — per-tier hairline bars with occupancy/cap, decay λ, rolling 10-s spawn (+) / evict (−) counts pulled from the event ring.
 - **COMMAND CONSOLE** (bottom-left of center) — manual phrase input + slash commands: `/help /pause /resume /rate <ms> /axioms /invariants /events /why <slot> /lasso /blast /clear`. Free text routes through `injectPhrase` (the same path the ticker uses).

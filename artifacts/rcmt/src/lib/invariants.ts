@@ -1,7 +1,7 @@
 /**
  * Runtime invariant checks for the RCMT lattice.
  *
- * These are the six load-bearing facts of the grounding-file format. Each is
+ * These are the five load-bearing facts of the grounding-file format. Each is
  * sampled at ~1 Hz from the HUD and surfaced as a green/red dot on the
  * INVARIANTS strip. Drift in any of them silently breaks the portability of
  * the saved tapestry, so they become a `INVARIANT_FAIL` event the moment
@@ -186,38 +186,12 @@ export function checkFoveation(): InvariantResult {
   };
 }
 
-/**
- * 6. Single-source-of-truth parity — the legacy `useStore.nodes` graph has
- *    been retired, so the VRAM frame buffer (`mockFrames`) is now the only
- *    node store. With no second graph to drift against, parity is green by
- *    construction; this check simply confirms a live frame buffer exists and
- *    reports its populated count.
- */
-export function checkParity(): InvariantResult {
-  const { mockFrames, activeFrameIndex } = useSaccadeStore.getState();
-  const frame = mockFrames[activeFrameIndex];
-  if (!frame) {
-    return { ok: false, detail: "no active frame buffer" };
-  }
-
-  let vramPopulated = 0;
-  for (let i = 0; i < MAX_NODES; i++) {
-    if (frame[i * STRIDE + 6] > 0) vramPopulated++;
-  }
-
-  return {
-    ok: true,
-    detail: `single source of truth — VRAM only (${vramPopulated} populated)`,
-  };
-}
-
 export interface AllInvariants {
   stride: InvariantResult;
   tier_contiguity: InvariantResult;
   fifo: InvariantResult;
   bvh_proxy: InvariantResult;
   foveation: InvariantResult;
-  parity: InvariantResult;
 }
 
 export function runAllInvariants(): AllInvariants {
@@ -227,6 +201,5 @@ export function runAllInvariants(): AllInvariants {
     fifo: checkFifo(),
     bvh_proxy: checkBvhProxy(),
     foveation: checkFoveation(),
-    parity: checkParity(),
   };
 }

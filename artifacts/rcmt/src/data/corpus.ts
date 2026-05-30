@@ -50,7 +50,7 @@ export const PHRASE_CORPUS: ReadonlyArray<string> = [
   "When the scaffold drifts the invariant dot turns red",
   "If a phrase is reinforced three times in tier four it promotes",
   "When confidence is below 0.55 the routing is guessing",
-  "If the legacy graph diverges from VRAM, parity goes red",
+  "The VRAM frame buffer is the single source of truth",
   "When the ticker pauses, decay still runs",
   "If the BVH index goes stale the lasso misses",
   "When a peer joins the HELLO frame assigns a peerId",

@@ -88,5 +88,4 @@ function runInvariantSweep() {
   setInv("fifo", results.fifo.ok, results.fifo.detail);
   setInv("bvh_proxy", results.bvh_proxy.ok, results.bvh_proxy.detail);
   setInv("foveation", results.foveation.ok, results.foveation.detail);
-  setInv("parity", results.parity.ok, results.parity.detail);
 }

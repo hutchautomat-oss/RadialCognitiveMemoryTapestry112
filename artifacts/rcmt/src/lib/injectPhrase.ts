@@ -14,9 +14,9 @@
  *   4. push HUD events: SPAWN | REINFORCE | EVICT | PROMOTE, AXIOM if
  *      the source is the boot seed, LOW_CONF if confidence < threshold.
  *
- * Note: this path deliberately bypasses the legacy useStore.addNode graph.
- * The legacy/VRAM parity invariant will show the divergence — that is
- * intentional. Task #4 retires the legacy graph entirely.
+ * Note: the VRAM frame buffer (`useSaccadeStore.mockFrames`) is the single
+ * source of truth; the legacy node graph has been retired, so this path is
+ * the only thing that writes lattice state.
  */
 
 import { useSaccadeStore, STRIDE } from "../store/useSaccadeStore";
