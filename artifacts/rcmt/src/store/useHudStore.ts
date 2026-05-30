@@ -82,12 +82,20 @@ export interface NetTelemetry {
 }
 
 export interface TickerState {
+  /** Manual run state — toggled ONLY by the user via `/pause` `/resume`. */
   running: boolean;
   periodMs: number;
   jitterMs: number;
   totalFired: number;
   lastFireAt: number;
   busy: boolean;
+  /**
+   * Idle auto-pause, driven by tab visibility (Page Visibility API), NOT by
+   * the user. Layered on top of `running` so the two compose: the ticker fires
+   * only when `running && !autoPaused`. A manual pause therefore stays paused
+   * even after the tab returns, and auto-pause never clobbers the user's choice.
+   */
+  autoPaused: boolean;
 }
 
 const EVENT_RING_CAP = 500;
@@ -176,6 +184,7 @@ interface HudStore {
   setTickerRunning: (running: boolean) => void;
   setTickerPeriod: (ms: number) => void;
   setTickerBusy: (busy: boolean) => void;
+  setTickerAutoPaused: (autoPaused: boolean) => void;
   markTickerFired: () => void;
 
   /**
@@ -289,6 +298,7 @@ export const useHudStore = create<HudStore>((set, get) => ({
     totalFired: 0,
     lastFireAt: 0,
     busy: false,
+    autoPaused: false,
   },
   setTickerRunning: (running) =>
     set((s) => ({ ticker: { ...s.ticker, running } })),
@@ -296,6 +306,8 @@ export const useHudStore = create<HudStore>((set, get) => ({
     set((s) => ({ ticker: { ...s.ticker, periodMs: Math.max(250, ms | 0) } })),
   setTickerBusy: (busy) =>
     set((s) => ({ ticker: { ...s.ticker, busy } })),
+  setTickerAutoPaused: (autoPaused) =>
+    set((s) => ({ ticker: { ...s.ticker, autoPaused } })),
   markTickerFired: () =>
     set((s) => ({
       ticker: {

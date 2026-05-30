@@ -1,4 +1,4 @@
-import { Suspense, useEffect, Component, ReactNode } from "react";
+import { Suspense, useEffect, useState, Component, ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Scene } from "./components/Scene";
 import { CommandConsole } from "./components/CommandConsole";
@@ -19,7 +19,7 @@ import {
 } from "./components/hud";
 import { NetworkManager } from "./network/NetworkManager";
 import { OnnxWorker } from "./workers/OnnxWorkerManager";
-import { pushHudEvent } from "./store/useHudStore";
+import { pushHudEvent, useHudStore } from "./store/useHudStore";
 import { COLOR, FONT } from "./components/hud/tokens";
 
 // ── WebGL Error Boundary ─────────────────────────────────────
@@ -88,6 +88,36 @@ function LoadingOverlay() {
 }
 
 export default function App() {
+  // Idle-aware energy savings: when the browser tab is hidden, auto-pause the
+  // ThoughtTicker (so it stops firing ONNX classifications nobody can see) and
+  // switch the R3F render loop to "demand" so the Canvas stops repainting every
+  // frame. Returning to the tab restores "always" rendering and clears the
+  // auto-pause — without touching the user's manual `/pause` choice.
+  const [tabHidden, setTabHidden] = useState(
+    () => typeof document !== "undefined" && document.hidden,
+  );
+
+  useEffect(() => {
+    // Sync the initial state in case the app mounts in a background tab — done
+    // silently (no event) so we only log genuine visibility transitions.
+    useHudStore.getState().setTickerAutoPaused(document.hidden);
+
+    function onVisibility() {
+      const hidden = document.hidden;
+      setTabHidden(hidden);
+      useHudStore.getState().setTickerAutoPaused(hidden);
+      pushHudEvent({
+        type: hidden ? "PAUSE" : "RESUME",
+        detail: hidden
+          ? "tab hidden — auto-paused render + ticker (energy save)"
+          : "tab visible — auto-resumed live rendering",
+      });
+    }
+
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
   useEffect(() => {
     NetworkManager.connect();
     // Boot the ONNX classifier worker so injections actually run through the
@@ -133,6 +163,7 @@ export default function App() {
       <Suspense fallback={<LoadingOverlay />}>
         <WebGLErrorBoundary>
           <Canvas
+            frameloop={tabHidden ? "demand" : "always"}
             gl={{ antialias: true, alpha: false }}
             camera={{ position: [0, 25, 95], fov: 60, near: 0.1, far: 500 }}
             style={{ position: "absolute", inset: 0 }}

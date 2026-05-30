@@ -57,8 +57,9 @@ export function ThoughtTicker() {
 
     async function tick() {
       const { ticker } = useHudStore.getState();
-      if (!ticker.running) {
-        // While paused, recheck every 500ms.
+      if (!ticker.running || ticker.autoPaused) {
+        // Paused — either manually (`running`) or auto (tab hidden, `autoPaused`).
+        // Recheck every 500ms so we resume promptly when the gate clears.
         schedule(500);
         return;
       }

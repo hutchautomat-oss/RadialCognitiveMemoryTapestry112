@@ -135,8 +135,16 @@ export function SyncCore() {
           label="TICKER"
           value={
             <span>
-              <Pill color={ticker.running ? COLOR.nominal : COLOR.warn}>
-                {ticker.running ? "AUTO" : "PAUSED"}
+              <Pill
+                color={
+                  !ticker.running
+                    ? COLOR.warn
+                    : ticker.autoPaused
+                      ? COLOR.accent
+                      : COLOR.nominal
+                }
+              >
+                {!ticker.running ? "PAUSED" : ticker.autoPaused ? "IDLE" : "AUTO"}
               </Pill>
               <span style={{ color: COLOR.textDim, marginLeft: 8 }}>
                 {(ticker.periodMs / 1000).toFixed(1)}±{(ticker.jitterMs / 1000).toFixed(1)}s

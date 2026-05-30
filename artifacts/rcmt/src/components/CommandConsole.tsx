@@ -315,7 +315,7 @@ export function CommandConsole() {
       style={{ minWidth: 320 }}
       headerExtra={
         <span style={{ color: COLOR.textMuted, fontSize: 9 }}>
-          ticker {ticker.running ? "AUTO" : "PAUSE"}{ticker.busy ? " ·BUSY" : ""}
+          ticker {!ticker.running ? "PAUSE" : ticker.autoPaused ? "IDLE" : "AUTO"}{ticker.busy ? " ·BUSY" : ""}
           {" · "}cap {TIER_CAPS.reduce((a, b) => a + b, 0)}
         </span>
       }
