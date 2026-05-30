@@ -74,7 +74,13 @@ export function Scene() {
         dampingFactor={0.06}
         rotateSpeed={0.5}
         zoomSpeed={0.8}
-        minDistance={5}
+        // zoomToCursor dollies toward the point under the cursor and slides the
+        // orbit target with it, so flying into the core heads exactly where the
+        // user is pointing instead of pivoting around the origin and pitching
+        // the camera up "out of the mandala". Pairs with a small minDistance so
+        // you can get right inside the dense foveal core to pick a single node.
+        zoomToCursor
+        minDistance={1.5}
         maxDistance={200}
       />
 

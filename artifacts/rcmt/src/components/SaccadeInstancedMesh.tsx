@@ -47,6 +47,10 @@ const _dragPlane   = new Plane(new Vector3(0, 1, 0), 0);
 const _hit         = new Vector3();
 
 const DEATH_THRESHOLD = 0.2;
+// Pointer travel (CSS px) past which a pointerdown becomes a relocate-drag
+// instead of a select-click. Small enough that a deliberate drag registers
+// instantly, large enough that a normal click never jitters into a move.
+const DRAG_THRESHOLD_PX = 5;
 // How many frames between bounding sphere recomputes (expensive)
 const BOUNDS_REFRESH_INTERVAL = 60;
 // Starburst spawn animation window (ms). Within this window, scale is multiplied
@@ -69,7 +73,16 @@ export function SaccadeInstancedMesh() {
   const nodeTimestamps = useRef(new Float32Array(MAX_NODES).fill(-1.0));
 
   // Drag state. instanceId === slot index by BVH proxy invariant.
-  const dragRef = useRef<{ slot: number } | null>(null);
+  // `moved` distinguishes a relocate-drag from a clean click: the drag-follow
+  // in useFrame only kicks in once the pointer has travelled past
+  // DRAG_THRESHOLD_PX, so a tap selects the node instead of teleporting it onto
+  // the y=0 drag plane.
+  const dragRef = useRef<{
+    slot: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
   // Currently-hovered slot for the source-phrase tooltip. Tracked in a ref so
   // pointermove updates don't churn React renders; we only call setHoveredSlot
   // when the slot identity changes (enter/leave/cross) or when the pointer
@@ -77,6 +90,10 @@ export function SaccadeInstancedMesh() {
   const hoverRef = useRef<number | null>(null);
 
   const { raycaster, gl } = useThree();
+  // OrbitControls instance (makeDefault). Disabled for the duration of an
+  // actual node relocate-drag so the camera doesn't orbit while you reposition
+  // a memory; left enabled for clicks so selection feels free.
+  const controls = useThree((s) => s.controls) as { enabled?: boolean } | null;
 
   // ── Store subscriptions ──────────────────────────────────────────
   const mockFrames       = useSaccadeStore((s) => s.mockFrames);
@@ -123,7 +140,9 @@ export function SaccadeInstancedMesh() {
     if (!frameData) return;
 
     // ── Drag follow — write directly to the VRAM frame ───────────
-    if (dragRef.current) {
+    // Only once the pointer has crossed DRAG_THRESHOLD_PX (dragRef.moved). A
+    // clean click never relocates the node — it selects it (see onPointerDown).
+    if (dragRef.current?.moved) {
       raycaster.ray.intersectPlane(_dragPlane, _hit);
       const slot = dragRef.current.slot;
       const off = slot * STRIDE;
@@ -310,21 +329,57 @@ export function SaccadeInstancedMesh() {
     }
   });
 
-  // ── Pointer events for drag ──────────────────────────────────────
+  // ── Pointer events: click-to-select vs drag-to-relocate ──────────
+  // pointerdown arms a candidate drag. Window-level move/up listeners then
+  // decide: travel past DRAG_THRESHOLD_PX → relocate-drag (camera frozen);
+  // released without travelling → clean click → select that single memory.
+  // Window listeners (not the mesh's pointerup) so a fast drag that leaves the
+  // node still resolves correctly.
   const onPointerDown = useCallback(
-    (e: { instanceId?: number; stopPropagation: () => void }) => {
+    (e: {
+      instanceId?: number;
+      nativeEvent: PointerEvent;
+      stopPropagation: () => void;
+    }) => {
       if (isLassoMode || e.instanceId === undefined) return;
       e.stopPropagation();
-      dragRef.current = { slot: e.instanceId };
-      gl.domElement.style.cursor = "grabbing";
-    },
-    [isLassoMode, gl],
-  );
+      const slot = e.instanceId;
+      dragRef.current = {
+        slot,
+        startX: e.nativeEvent.clientX,
+        startY: e.nativeEvent.clientY,
+        moved: false,
+      };
 
-  const onPointerUp = useCallback(() => {
-    dragRef.current = null;
-    gl.domElement.style.cursor = "auto";
-  }, [gl]);
+      const onWinMove = (ev: PointerEvent) => {
+        const d = dragRef.current;
+        if (!d || d.moved) return;
+        if (
+          Math.hypot(ev.clientX - d.startX, ev.clientY - d.startY) >
+          DRAG_THRESHOLD_PX
+        ) {
+          d.moved = true;
+          gl.domElement.style.cursor = "grabbing";
+          if (controls) controls.enabled = false; // freeze orbit during relocate
+        }
+      };
+      const onWinUp = () => {
+        window.removeEventListener("pointermove", onWinMove);
+        window.removeEventListener("pointerup", onWinUp);
+        const d = dragRef.current;
+        dragRef.current = null;
+        gl.domElement.style.cursor = "auto";
+        if (controls) controls.enabled = true;
+        // Clean click (never crossed the threshold) = pick this single memory.
+        if (d && !d.moved) {
+          useSaccadeStore.getState().setSelectedSlots(new Set([d.slot]));
+        }
+      };
+      window.addEventListener("pointermove", onWinMove);
+      window.addEventListener("pointerup", onWinUp);
+    },
+    [isLassoMode, gl, controls],
+  );
 
   // ── Hover → source-phrase tooltip ────────────────────────────────
   // Only fires the store update when:
@@ -344,6 +399,9 @@ export function SaccadeInstancedMesh() {
       const s = useSaccadeStore.getState();
       const phrase = s.slotPhrase[slot];
       const occupied = (s.mockFrames[s.activeFrameIndex]?.[slot * STRIDE + 6] ?? 0) > 0;
+      // Cursor affordance: any live node is clickable, so hovering one shows a
+      // pointer cursor — makes "this is selectable" obvious even from birds-eye.
+      gl.domElement.style.cursor = occupied ? "pointer" : "auto";
       if (!phrase || !occupied) {
         // Crossed onto a slot we shouldn't show a tip for — clear if we were
         // showing one for a previous slot.
@@ -357,15 +415,17 @@ export function SaccadeInstancedMesh() {
       hoverRef.current = slot;
       s.setHoveredSlot({ slot, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY });
     },
-    [isLassoMode],
+    [isLassoMode, gl],
   );
 
   const onPointerOut = useCallback(() => {
+    // Don't fight the grabbing cursor mid-relocate; only reset when idle.
+    if (!dragRef.current) gl.domElement.style.cursor = "auto";
     if (hoverRef.current !== null) {
       hoverRef.current = null;
       useSaccadeStore.getState().setHoveredSlot(null);
     }
-  }, []);
+  }, [gl]);
 
   return (
     <instancedMesh
@@ -376,7 +436,6 @@ export function SaccadeInstancedMesh() {
         // VISUAL_RADIUS_MULT constant is the load-bearing value the BVH proxy
         // invariant compares against — do not inline-edit `0.15` here.
       onPointerDown={onPointerDown as never}
-      onPointerUp={onPointerUp}
       onPointerMove={onPointerMove as never}
       onPointerOut={onPointerOut}
       frustumCulled={false}

@@ -5,6 +5,7 @@ import { CommandConsole } from "./components/CommandConsole";
 import { Timeline } from "./components/Timeline";
 import { ThoughtTicker } from "./components/ThoughtTicker";
 import { HoverTooltip } from "./components/HoverTooltip";
+import { SelectedMemory } from "./components/SelectedMemory";
 import { PeripheralFlash } from "./components/PeripheralFlash";
 import { HudOnboarding } from "./components/HudOnboarding";
 import {
@@ -190,6 +191,7 @@ export default function App() {
       <TelemetryBar />
       <Timeline />
       <HoverTooltip />
+      <SelectedMemory />
       <PeripheralFlash />
 
       {/* First-run / on-demand guided walkthrough (mounted last so it overlays). */}
