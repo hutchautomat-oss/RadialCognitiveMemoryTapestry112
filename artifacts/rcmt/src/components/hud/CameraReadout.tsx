@@ -19,8 +19,8 @@ const SCAFFOLD_SEGMENTS: { value: ScaffoldIntensity; label: string }[] = [
 ];
 
 const CAMERA_SEGMENTS: { value: CameraMode; label: string }[] = [
-  { value: "orbit", label: "ORBIT" },
-  { value: "fly", label: "FLY" },
+  { value: "work", label: "WORK" },
+  { value: "drive", label: "DRIVE" },
 ];
 
 function ScaffoldControl() {
@@ -95,7 +95,7 @@ function CameraModeControl() {
       }}
     >
       <span style={{ color: COLOR.textMuted, fontSize: 9, letterSpacing: 1 }}>
-        FLIGHT
+        CAMERA
       </span>
       <div
         style={{
@@ -113,7 +113,7 @@ function CameraModeControl() {
               type="button"
               onClick={() => setMode(value)}
               aria-pressed={active}
-              title="Orbit around the lattice, or fly through it freely (hold-drag to look, WASD to move)"
+              title="WORK: cursor only picks cells, never drives the camera. DRIVE: scale-dive into the core or out to any cell (scroll to zoom, drag to orbit, arrows/pan to traverse)."
               style={{
                 border: "none",
                 background: active ? COLOR.accent : "transparent",

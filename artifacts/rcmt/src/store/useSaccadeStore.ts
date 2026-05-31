@@ -447,6 +447,25 @@ interface SaccadeStore {
   blastSelectedSlots: () => number;
 
   /**
+   * Manual console operations — the lawful, explicit edits the per-cell console
+   * exposes. Each mirrors a path the autonomous engine already takes, so no new
+   * physics is introduced: they only let a human trigger the same mutation by
+   * hand. They mutate the frame buffer (single source of truth) but DO NOT
+   * broadcast — the lib wrapper in `slotOps.ts` owns the wire packet + HUD event
+   * so the canonical broadcast surface stays in one place.
+   *
+   * All are no-ops (return null/false) on a vacant or out-of-range slot.
+   */
+  /** Re-affirm an occupied slot ("seen again"): bump mass/strikes + re-pop, promoting a Theory/Dream that crosses the strike threshold. */
+  reinforceSlot: (slot: number) => InjectOutcome | null;
+  /** Migrate an occupied slot one shell INWARD (toward grounding). Returns the destination slot, or null if already at the Fact core. */
+  promoteSlotManual: (slot: number) => number | null;
+  /** Drift an occupied slot one shell OUTWARD (toward the Dream rim). Returns the destination slot, or null if already at the rim. */
+  demoteSlotManual: (slot: number) => number | null;
+  /** Evict (fade) a single occupied slot, returning it to its tier FIFO. Returns true if a slot was freed. */
+  evictSlot: (slot: number) => boolean;
+
+  /**
    * Pure read-only cosine scan over every active slot's stored embedding.
    * Returns the top-K slots whose similarity is >= `threshold`, ranked
    * descending. Mutates nothing — no frame write, no broadcast.
@@ -1028,6 +1047,98 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     });
 
     return purgedCount;
+  },
+
+  reinforceSlot: (slot) => {
+    const state = get();
+    const { mockFrames, activeFrameIndex, mass, slotTier, spawnTime, injectedAt, reinforcementCount } = state;
+    const frame = mockFrames[activeFrameIndex];
+    if (!frame) return null;
+    if (slot < 0 || slot >= MAX_NODES) return null;
+    const off = slot * STRIDE;
+    // Nothing to re-affirm on a vacant slot.
+    if (frame[off + 6] <= 0 || mass[slot] <= 0) return null;
+    const now = performance.now();
+    // Mirror the autonomous reinforcement branch exactly (no new physics).
+    spawnTime[slot] = now;
+    injectedAt[slot] = now;
+    mass[slot] = Math.min(mass[slot] + MASS_REINFORCE_INCR, MASS_REINFORCE_CAP);
+    reinforcementCount[slot] = Math.min(255, reinforcementCount[slot] + 1);
+    frame[off + 6] = mass[slot];
+    const tier = slotTier[slot];
+    // Promotion gated to Theory/Dream (4,5) at the strike threshold, same as inject.
+    if (
+      (tier === 4 || tier === 5) &&
+      reinforcementCount[slot] >= REINFORCE_PROMOTE_COUNT
+    ) {
+      const promoted = promoteSlot(slot, get, set);
+      if (promoted !== null) {
+        return { index: promoted, kind: "promote", tier: slotTier[promoted] };
+      }
+      return { index: slot, kind: "reinforce", tier };
+    }
+    set({ bvhDirty: true });
+    return { index: slot, kind: "reinforce", tier };
+  },
+
+  promoteSlotManual: (slot) => {
+    const state = get();
+    if (slot < 0 || slot >= MAX_NODES) return null;
+    const frame = state.mockFrames[state.activeFrameIndex];
+    if (!frame || frame[slot * STRIDE + 6] <= 0 || state.mass[slot] <= 0) {
+      return null;
+    }
+    if (state.slotTier[slot] <= 1) return null; // already at the Fact core
+    return promoteSlot(slot, get, set);
+  },
+
+  demoteSlotManual: (slot) => {
+    const state = get();
+    if (slot < 0 || slot >= MAX_NODES) return null;
+    const frame = state.mockFrames[state.activeFrameIndex];
+    if (!frame || frame[slot * STRIDE + 6] <= 0 || state.mass[slot] <= 0) {
+      return null;
+    }
+    if (state.slotTier[slot] >= TIER_CAPS.length) return null; // already at the rim
+    return demoteSlot(slot, get, set);
+  },
+
+  evictSlot: (slot) => {
+    const state = get();
+    const { mockFrames, activeFrameIndex, spawnTime, slotTier, mass, injectedAt, reinforcementCount, animStartTime, embeddings, slotPhrase } = state;
+    const frame = mockFrames[activeFrameIndex];
+    if (!frame) return false;
+    if (slot < 0 || slot >= MAX_NODES) return false;
+    const off = slot * STRIDE;
+    if (frame[off + 6] <= 0) return false;
+    // Same wipe sequence as blastSelectedSlots, scoped to one slot.
+    frame[off + 6] = 0;
+    spawnTime[slot] = 0;
+    mass[slot] = 0;
+    injectedAt[slot] = 0;
+    reinforcementCount[slot] = 0;
+    animStartTime[slot] = 0;
+    slotPhrase[slot] = null;
+    const base = slot * EMBEDDING_DIM;
+    for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[base + k] = 0;
+    const tier = slotTier[slot];
+    set((s) => {
+      const nextByTier = s.vacantSlotsByTier.map((arr, t) =>
+        t === tier - 1 ? appendUniqueFIFO(arr, [slot]) : arr,
+      );
+      const nextCounts = s.tierCounts.map((c, t) =>
+        t === tier - 1 ? Math.max(0, c - 1) : c,
+      );
+      const nextSel = new Set(s.selectedSlots);
+      nextSel.delete(slot);
+      return {
+        vacantSlotsByTier: nextByTier,
+        tierCounts: nextCounts,
+        selectedSlots: nextSel,
+        bvhDirty: true,
+      };
+    });
+    return true;
   },
 
   rankBySimilarity: (query, topK, threshold) => {

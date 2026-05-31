@@ -44,8 +44,9 @@ let chain: Promise<unknown> = Promise.resolve();
 export function injectPhrase(
   text: string,
   source: InjectSource = "console",
+  forceTier?: number,
 ): Promise<InjectResult> {
-  const next = chain.then(() => doInject(text, source));
+  const next = chain.then(() => doInject(text, source, forceTier));
   // Catch so a single failure doesn't poison the chain forever.
   chain = next.catch(() => undefined);
   return next;
@@ -66,6 +67,7 @@ export function embedQuery(text: string): Promise<Float32Array | null> {
 async function doInject(
   text: string,
   source: InjectSource,
+  forceTier?: number,
 ): Promise<InjectResult> {
   useHudStore.getState().setTickerBusy(true);
   try {
@@ -73,9 +75,17 @@ async function doInject(
     const cls = await OnnxWorker.classify(text);
     // Axiom seeds are FORCED to Fact tier (slot=1) regardless of classifier
     // output — they're foundational facts and must land in the foveated core.
-    // The classifier confidence is still surfaced so an axiom that the model
-    // would have routed elsewhere still raises a LOW_CONF event below.
-    const slot = source === "axiom" ? 1 : cls.slot;
+    // The console's "write into this band" op likewise forces the spawn tier to
+    // the cell the operator picked (1..5). In both cases the classifier
+    // confidence is still surfaced so a forced placement the model would have
+    // routed elsewhere still raises a LOW_CONF event below. The cosine
+    // reinforcement check inside injectLiveIntentVector still runs first, so a
+    // forced write that duplicates an existing memory lawfully reinforces it.
+    const forced =
+      forceTier !== undefined && forceTier >= 1 && forceTier <= 5
+        ? forceTier
+        : undefined;
+    const slot = source === "axiom" ? 1 : (forced ?? cls.slot);
     const similarities = cls.similarities;
     const latencyMs = cls.latencyMs;
     const embedding = cls.embedding;

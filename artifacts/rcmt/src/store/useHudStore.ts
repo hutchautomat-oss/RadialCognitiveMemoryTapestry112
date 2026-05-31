@@ -175,24 +175,37 @@ function saveScaffoldIntensity(v: ScaffoldIntensity) {
 const initialScaffoldIntensity = loadScaffoldIntensity();
 
 /**
- * Camera navigation mode. `orbit` (default) is the OrbitControls camera that
- * swings around a target point. `fly` swaps in a free first-person/fly camera
- * so the user can pilot inward through the core and turn to look around in
- * place. Pure navigation chrome — never touches lattice data or the wire format.
+ * Camera navigation mode (split from the old orbit/fly toggle).
+ *
+ * - `work` (default): the cursor is a PURE POINTER — it hovers, selects, and
+ *   opens the per-intersection console, but NEVER drives the camera. Cursor-
+ *   targeted dolly (zoomToCursor) is structurally disabled here, so a stray
+ *   scroll while you aim can't fling the view. Gentle, centred orbit + zoom
+ *   that can't strand you outside the lattice.
+ * - `drive`: a distortion-free scale dive. Constant FOV (no dolly-zoom), dolly
+ *   always heads toward the core target so you can plunge into the dense Fact
+ *   core or pan-and-dive out to the farthest rim cell — without ever exiting
+ *   the sphere or stalling in empty space.
+ *
+ * Pure navigation chrome — never touches lattice data or the wire format.
  */
-export type CameraMode = "orbit" | "fly";
+export type CameraMode = "work" | "drive";
 
 const CAMERA_MODE_KEY = "rcmt:hud:camera:v1";
 
 function loadCameraMode(): CameraMode {
-  if (typeof window === "undefined") return "orbit";
+  if (typeof window === "undefined") return "work";
   try {
     const raw = window.localStorage.getItem(CAMERA_MODE_KEY);
-    if (raw === "orbit" || raw === "fly") return raw;
+    if (raw === "work" || raw === "drive") return raw;
+    // Migrate the pre-split persisted values so a returning user keeps intent:
+    // orbit (cursor-centric inspection) → work; fly (piloting) → drive.
+    if (raw === "orbit") return "work";
+    if (raw === "fly") return "drive";
   } catch {
     // Private-mode / quota failures: fall back to the default.
   }
-  return "orbit";
+  return "work";
 }
 
 function saveCameraMode(v: CameraMode) {
@@ -272,6 +285,16 @@ interface HudStore {
 
   cameraMode: CameraMode;
   setCameraMode: (v: CameraMode) => void;
+
+  /**
+   * Surgical "dive to this cell" bridge from the console (work mode) into a
+   * drive-mode scale dive. `requestDive` switches the camera to drive and
+   * stamps a target world position + a monotonic epoch; an in-canvas
+   * controller eases the OrbitControls target/distance toward it once per
+   * epoch, then releases control. Camera-only — never touches lattice data.
+   */
+  diveRequest: { x: number; y: number; z: number; epoch: number } | null;
+  requestDive: (pos: { x: number; y: number; z: number }) => void;
 }
 
 const emptyInvariant = (): InvariantState => ({
@@ -413,6 +436,21 @@ export const useHudStore = create<HudStore>((set, get) => ({
     saveCameraMode(v);
     set({ cameraMode: v });
   },
+
+  diveRequest: null,
+  requestDive: (pos) =>
+    set((s) => {
+      saveCameraMode("drive");
+      return {
+        cameraMode: "drive",
+        diveRequest: {
+          x: pos.x,
+          y: pos.y,
+          z: pos.z,
+          epoch: (s.diveRequest?.epoch ?? 0) + 1,
+        },
+      };
+    }),
 }));
 
 /** Module-level shortcut so non-React modules can push events without subscribing. */
