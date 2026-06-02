@@ -24,6 +24,7 @@ import { useHudStore, pushHudEvent } from "../store/useHudStore";
 import { OnnxWorker } from "../workers/OnnxWorkerManager";
 import { NetworkManager } from "../network/NetworkManager";
 import { TIER_BAND } from "../lib/tierNarration";
+import { scheduleAutosave } from "./tapestryPersist";
 
 const LOW_CONF_THRESHOLD = 0.55;
 const TIER_NAMES = ["FACT", "SCENARIO", "METRIC", "THEORY", "DREAM"];
@@ -46,7 +47,7 @@ export function injectPhrase(
   source: InjectSource = "console",
   forceTier?: number,
 ): Promise<InjectResult> {
-  const next = chain.then(() => doInject(text, source, forceTier));
+  const next = chain.then(() => doInject(text, source, forceTier)).then(r => { scheduleAutosave(); return r; });
   // Catch so a single failure doesn't poison the chain forever.
   chain = next.catch(() => undefined);
   return next;
