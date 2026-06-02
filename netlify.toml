@@ -1,0 +1,26 @@
+# Netlify configuration for RCMT frontend (artifacts/rcmt)
+# The frontend is a Vite + React SPA living in a pnpm workspace.
+# Build output: artifacts/rcmt/dist/public  (see vite.config.ts outDir)
+# The _redirects file is already in artifacts/rcmt/public/ and Vite
+# copies public/ verbatim into dist/public/, so it lands in the publish dir.
+
+[build]
+  # Run install + build from the repo root so pnpm workspace links resolve.
+    command = "npm install -g pnpm && pnpm install --frozen-lockfile && pnpm --filter @workspace/rcmt run build"
+      publish = "artifacts/rcmt/dist/public"
+
+      [build.environment]
+        # BASE_PATH must be "/" for a root-hosted Netlify site.
+          BASE_PATH = "/"
+            # NODE_ENV is set to "production" by Netlify automatically, but be explicit.
+              NODE_ENV  = "production"
+                # Tell pnpm not to bail on missing peer deps (matches .npmrc).
+                  NPM_FLAGS = "--legacy-peer-deps"
+
+                  # SPA fallback — also handled by the _redirects file in publish dir,
+                  # but belt-and-suspenders here keeps it working even if _redirects is missed.
+                  [[redirects]]
+                    from   = "/*"
+                      to     = "/index.html"
+                        status = 200
+                        
