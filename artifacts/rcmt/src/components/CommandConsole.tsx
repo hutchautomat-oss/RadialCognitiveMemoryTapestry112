@@ -35,6 +35,7 @@ import { useHudStore, type HudEventType } from "../store/useHudStore";
 import { injectPhrase, embedQuery } from "../lib/injectPhrase";
 import { AXIOMS } from "../data/corpus";
 import { NetworkManager } from "../network/NetworkManager";
+import { downloadTapestry, loadTapestryFromFile, scheduleAutosave } from "../lib/tapestryPersist";
 import { COLOR, FONT, TIER_NAMES } from "./hud/tokens";
 import { HudCard } from "./hud/HudCard";
 
@@ -128,6 +129,8 @@ export function CommandConsole() {
         pushLog("  /why <slot>   full provenance for one VRAM slot");
         pushLog("  /lasso        toggle box-select to mark slots");
         pushLog("  /blast        purge the currently-selected slots");
+        pushLog("  /save         download sovereign_save_key.bin to disk");
+        pushLog("  /load         restore tapestry from a sovereign_save_key.bin file");
         pushLog("  /find <text>  spotlight memories by meaning (empty to clear)");
         pushLog("TICKER — the autonomous thought loop");
         pushLog("  /pause        stop auto-injecting phrases");
@@ -354,7 +357,39 @@ export function CommandConsole() {
         })();
         break;
       }
-      default:
+      case "/save":
+        try {
+          downloadTapestry();
+          pushLog("sovereign_save_key.bin download triggered");
+        } catch (err) {
+          pushLog(` ERROR: ${(err as Error).message}`);
+        }
+        break;
+      case "/load": {
+        const fileInput = document.createElement("input");
+        fileInput.type = "file";
+        fileInput.accept = ".bin,application/octet-stream";
+        fileInput.onchange = async () => {
+          const file = fileInput.files?.[0];
+          if (!file) return;
+          pushLog(`loading ${file.name} (${(file.size / 1024).toFixed(1)} KB)…`);
+          try {
+            const result = await loadTapestryFromFile(file);
+            if (result.ok) {
+              const ts = result.savedAt ? new Date(result.savedAt).toLocaleTimeString() : "unknown time";
+              pushLog(` loaded ${result.slotCount} slots · saved at ${ts}`);
+              scheduleAutosave();
+            } else {
+              pushLog(` ERROR: ${result.message}`);
+            }
+          } catch (err) {
+            pushLog(` ERROR: ${(err as Error).message}`);
+          }
+        };
+        fileInput.click();
+        break;
+      }
+            default:
         pushLog(`unknown command: ${cmd} (/help)`);
     }
   }
