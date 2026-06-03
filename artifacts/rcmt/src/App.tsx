@@ -193,7 +193,7 @@ export default function App() {
           <Canvas
             frameloop={tabHidden ? "demand" : "always"}
             gl={{ antialias: true, alpha: false }}
-            camera={{ position: [0, 25, 95], fov: 60, near: 0.1, far: 500 }}
+            camera={{ position: [0, 25, 95], fov: 70, near: 0.5, far: 500 }}
             style={{ position: "absolute", inset: 0 }}
             onCreated={({ gl }) => {
               gl.setClearColor(COLOR.bgSolid, 1);
