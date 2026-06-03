@@ -45,7 +45,6 @@ function resetStore() {
     slotPhrase: new Array(MAX_NODES).fill(null),
     bvhDirty: true,
   });
-  localStorage.clear();
 }
 
 describe("sovereign_save_key.bin round-trip", () => {
