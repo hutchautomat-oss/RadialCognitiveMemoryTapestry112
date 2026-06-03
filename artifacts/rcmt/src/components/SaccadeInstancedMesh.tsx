@@ -29,6 +29,7 @@ import {
   TIER_LAMBDA,
   PROMOTION_ANIM_MS,
 } from "../store/useSaccadeStore";
+import { useHudStore } from "../store/useHudStore";
 import { NetworkManager } from "../network/NetworkManager";
 
 /**
@@ -126,6 +127,7 @@ export function SaccadeInstancedMesh() {
     const searchActive = sState.searchActive;
     const searchMatches = sState.searchMatches;
     const nowMs = performance.now();
+    const reducedMotion = useHudStore.getState().reducedMotion;
     // Task #3 per-tier state (read non-reactively for the same reason as
     // spawnTime — they're typed-array views mutated in place by the store).
     const slotTierArr = sState.slotTier;
@@ -188,7 +190,7 @@ export function SaccadeInstancedMesh() {
         // means "no animation" (pre-existing or demo-seeded node) → mul=1.
         let popMul = 1;
         const ts = spawnTime[i];
-        if (ts > 0) {
+        if (ts > 0 && !reducedMotion) {
           const t = (nowMs - ts) / SPAWN_ANIM_MS;
           if (t >= 0 && t < 1) popMul = easeOutBack(t);
         }
@@ -218,9 +220,7 @@ export function SaccadeInstancedMesh() {
         let flashOutward = false;
         const animStart = animStartArr[i];
         if (animStart > 0) {
-          const rawT = (nowMs - animStart) / PROMOTION_ANIM_MS;
-          if (rawT >= 1) {
-            // Snap to destination + clear animation.
+          if (reducedMotion) {
             const tx = animToArr[i * 3 + 0];
             const ty = animToArr[i * 3 + 1];
             const tz = animToArr[i * 3 + 2];
@@ -231,27 +231,42 @@ export function SaccadeInstancedMesh() {
             py = ty;
             pz = tz;
             animStartArr[i] = 0;
-          } else if (rawT > 0) {
-            // Cubic ease-in-out.
-            const t = rawT;
-            const ease =
-              t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-            const fx = animFromArr[i * 3 + 0];
-            const fy = animFromArr[i * 3 + 1];
-            const fz = animFromArr[i * 3 + 2];
-            const tx = animToArr[i * 3 + 0];
-            const ty = animToArr[i * 3 + 1];
-            const tz = animToArr[i * 3 + 2];
-            px = fx + (tx - fx) * ease;
-            py = fy + (ty - fy) * ease;
-            pz = fz + (tz - fz) * ease;
-            // Compare radii (origin-distance) of the endpoints: a larger
-            // destination radius = outward drift = demotion.
-            flashOutward =
-              tx * tx + ty * ty + tz * tz > fx * fx + fy * fy + fz * fz;
-            const pulse = Math.sin(Math.PI * t);
-            promoMul = 1 + 0.5 * pulse;
-            promoFlash = pulse;
+          } else {
+            const rawT = (nowMs - animStart) / PROMOTION_ANIM_MS;
+            if (rawT >= 1) {
+              // Snap to destination + clear animation.
+              const tx = animToArr[i * 3 + 0];
+              const ty = animToArr[i * 3 + 1];
+              const tz = animToArr[i * 3 + 2];
+              frameData[offset + 0] = tx;
+              frameData[offset + 1] = ty;
+              frameData[offset + 2] = tz;
+              px = tx;
+              py = ty;
+              pz = tz;
+              animStartArr[i] = 0;
+            } else if (rawT > 0) {
+              // Cubic ease-in-out.
+              const t = rawT;
+              const ease =
+                t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+              const fx = animFromArr[i * 3 + 0];
+              const fy = animFromArr[i * 3 + 1];
+              const fz = animFromArr[i * 3 + 2];
+              const tx = animToArr[i * 3 + 0];
+              const ty = animToArr[i * 3 + 1];
+              const tz = animToArr[i * 3 + 2];
+              px = fx + (tx - fx) * ease;
+              py = fy + (ty - fy) * ease;
+              pz = fz + (tz - fz) * ease;
+              // Compare radii (origin-distance) of the endpoints: a larger
+              // destination radius = outward drift = demotion.
+              flashOutward =
+                tx * tx + ty * ty + tz * tz > fx * fx + fy * fy + fz * fz;
+              const pulse = Math.sin(Math.PI * t);
+              promoMul = 1 + 0.5 * pulse;
+              promoFlash = pulse;
+            }
           }
         }
 

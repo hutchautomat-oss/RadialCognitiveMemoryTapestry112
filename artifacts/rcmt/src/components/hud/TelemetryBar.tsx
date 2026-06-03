@@ -22,6 +22,7 @@ export function TelemetryBar() {
   const fps = useHudStore((s) => s.fps);
   const drawCalls = useHudStore((s) => s.drawCalls);
   const instancedCount = useHudStore((s) => s.instancedCount);
+  const bvhMs = useHudStore((s) => s.bvhMs);
   const ticker = useHudStore((s) => s.ticker);
   const activeFrameIndex = useSaccadeStore((s) => s.activeFrameIndex);
   const frameCount = useSaccadeStore((s) => s.mockFrames.length);
@@ -54,6 +55,7 @@ export function TelemetryBar() {
       <Cell label="FPS" value={fps.toFixed(0)} color={fpsColor} />
       <Cell label="DRAW" value={drawCalls.toString()} />
       <Cell label="INST" value={instancedCount.toLocaleString()} />
+      <Cell label="BVH" value={`${bvhMs.toFixed(1)} ms`} />
       <Cell
         label="FRAME"
         value={`${activeFrameIndex}/${Math.max(0, frameCount - 1)}`}

@@ -16,7 +16,7 @@ const SAMPLE_INTERVAL_MS = 250;
 const INVARIANT_INTERVAL_MS = 1000;
 
 export function HudBridge() {
-  const { camera, controls, gl } = useThree();
+  const { camera, controls, gl, scene } = useThree();
   const lastSampleRef = useRef(0);
   const lastInvariantRef = useRef(0);
   const fpsAccumRef = useRef({ frames: 0, since: performance.now() });
@@ -24,6 +24,8 @@ export function HudBridge() {
   // Initial invariant sweep so the strip doesn't show "uninitialized" forever.
   useEffect(() => {
     runInvariantSweep();
+    (window as any).__rcmtRenderer = gl;
+    (window as any).__rcmtScene = scene;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

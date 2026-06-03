@@ -1,7 +1,8 @@
-import { useRef, useEffect } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { Controllers, useXR } from "@react-three/xr";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { InstancedMesh, PointLight, Vector2, Vector3 } from "three";
+import { CanvasTexture, Group, InstancedMesh, Mesh, PointLight, Vector2, Vector3 } from "three";
 import { useHudStore } from "../store/useHudStore";
 import {
   useSaccadeStore,
@@ -10,6 +11,7 @@ import {
   latticePosition,
 } from "../store/useSaccadeStore";
 import { SaccadeInstancedMesh } from "./SaccadeInstancedMesh";
+import { SynapseRenderer } from "./SynapseRenderer";
 import { LassoSelection } from "./LassoSelection";
 import { GhostScaffold } from "./GhostScaffold";
 import { HudBridge } from "./HudBridge";
@@ -41,6 +43,11 @@ function DriftingLight() {
 
 // Module-level scratch vector — zero GC pressure inside useFrame.
 const _focusVec = new Vector3();
+const _vrLeft = new Vector3();
+const _vrRight = new Vector3();
+const _vrPlaneDir = new Vector3();
+const _vrMoveDir = new Vector3();
+const _vrHeadForward = new Vector3();
 
 /**
  * SearchFocus — eases the OrbitControls target toward the centroid of the
@@ -73,8 +80,8 @@ function SearchFocus() {
 
 // Distance the dive settles to once it reaches a cell — close enough to read a
 // single memory, far enough that the node fills the frame without clipping.
-const DIVE_TARGET_DISTANCE = 4;
-const DIVE_MS = 900;
+const DIVE_TARGET_DISTANCE = 6;
+const DIVE_MS = 400;
 const _diveTo = new Vector3();
 const _camDir = new Vector3();
 
@@ -96,10 +103,22 @@ function CameraDive() {
   const deadlineRef = useRef(0);
   useFrame(() => {
     const req = useHudStore.getState().diveRequest;
+    const reducedMotion = useHudStore.getState().reducedMotion;
     if (!req) return;
     if (req.epoch !== epochRef.current) {
       epochRef.current = req.epoch;
       deadlineRef.current = performance.now() + DIVE_MS;
+    }
+    if (reducedMotion) {
+      // Jump immediately without easing
+      if (!controls?.target) return;
+      controls.target.set(req.x, req.y, req.z);
+      // Place camera at a fixed distance along its current view direction
+      _camDir.copy(camera.position).sub(controls.target);
+      _camDir.setLength(DIVE_TARGET_DISTANCE);
+      camera.position.copy(controls.target).add(_camDir);
+      controls.update?.();
+      return;
     }
     if (performance.now() > deadlineRef.current) return;
     if (!controls?.target) return;
@@ -120,6 +139,107 @@ function CameraDive() {
     controls.update?.();
   });
   return null;
+}
+
+function VrNavigation() {
+  const { player, controllers } = useXR();
+  const camera = useThree((s) => s.camera);
+  useFrame((_, delta) => {
+    if (!player || controllers.length < 2) return;
+    const left = controllers.find((c) => c.handedness === "left");
+    const right = controllers.find((c) => c.handedness === "right");
+    if (!left?.grip || !right?.grip) return;
+    left.grip.getWorldPosition(_vrLeft);
+    right.grip.getWorldPosition(_vrRight);
+    _vrPlaneDir.subVectors(_vrRight, _vrLeft);
+    _vrPlaneDir.y = 0;
+    const separation = _vrPlaneDir.length();
+    if (separation < 0.18) return;
+    const speed = Math.min((separation - 0.18) * 2.8, 9);
+    _vrHeadForward.copy(camera.getWorldDirection(_vrHeadForward)).setY(0).normalize();
+    if (_vrHeadForward.lengthSq() < 1e-4) return;
+    _vrMoveDir.copy(_vrPlaneDir).normalize();
+    if (_vrHeadForward.dot(_vrMoveDir) < 0.2) {
+      _vrMoveDir.lerp(_vrHeadForward, 0.84).normalize();
+    }
+    player.position.addScaledVector(_vrMoveDir, speed * delta);
+    if (player.position.length() > CAM_ENVELOPE - 1) {
+      player.position.setLength(CAM_ENVELOPE - 1);
+    }
+  });
+  return null;
+}
+
+function VrWim() {
+  const { controllers } = useXR();
+  const ref = useRef<Group>(null!);
+  useFrame(() => {
+    const grip = controllers.find((c) => c.handedness === "right")?.grip;
+    if (!grip || !ref.current) return;
+    grip.getWorldPosition(ref.current.position);
+    grip.getWorldQuaternion(ref.current.quaternion);
+    ref.current.position.y += 0.12;
+  });
+  return (
+    <group ref={ref} scale={[0.14, 0.14, 0.14]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.12, 0.18, 32]} />
+        <meshBasicMaterial color="#64d6ff" opacity={0.22} transparent />
+      </mesh>
+      <mesh position={[0, 0, -0.08]}>
+        <sphereGeometry args={[0.03, 10, 10]} />
+        <meshStandardMaterial color="#75e5c9" emissive="#1e8dff" emissiveIntensity={0.35} />
+      </mesh>
+      <mesh position={[0, 0.12, 0]}>
+        <boxGeometry args={[0.06, 0.01, 0.06]} />
+        <meshStandardMaterial color="#ffffff" opacity={0.55} transparent />
+      </mesh>
+    </group>
+  );
+}
+
+function VrVignette() {
+  const ref = useRef<Mesh>(null!);
+  const camera = useThree((s) => s.camera);
+  const texture = useMemo(() => {
+    const size = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return undefined;
+    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, "rgba(0,0,0,0)");
+    gradient.addColorStop(0.7, "rgba(0,0,0,0.0)");
+    gradient.addColorStop(1, "rgba(0,0,0,0.7)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    return new CanvasTexture(canvas);
+  }, []);
+  useFrame(() => {
+    if (!ref.current) return;
+    ref.current.position.copy(camera.position).add(camera.getWorldDirection(_camDir).setLength(0.45));
+    ref.current.quaternion.copy(camera.quaternion);
+  });
+  if (!texture) return null;
+  return (
+    <mesh ref={ref} renderOrder={999}>
+      <planeGeometry args={[1.8, 1.8]} />
+      <meshBasicMaterial map={texture} transparent depthTest={false} depthWrite={false} />
+    </mesh>
+  );
+}
+
+function VrEnhancements() {
+  const { isPresenting } = useXR();
+  return isPresenting ? (
+    <>
+      <Controllers />
+      <VrNavigation />
+      <VrWim />
+      <VrVignette />
+    </>
+  ) : null;
 }
 
 // Radial envelope of the populated lattice. The farthest cell sits at
@@ -269,7 +389,7 @@ export function Scene() {
           listenToKeyEvents={
             typeof window !== "undefined" ? window : undefined
           }
-          minDistance={3}
+          minDistance={1.5}
           maxDistance={CAM_ENVELOPE}
         />
       ) : (
@@ -286,10 +406,9 @@ export function Scene() {
           dampingFactor={0.06}
           rotateSpeed={0.5}
           zoomSpeed={0.8}
-          enablePan
-          panSpeed={0.6}
-          minDistance={10}
-          maxDistance={180}
+          enablePan={false}
+          minDistance={2}
+          maxDistance={200}
         />
       )}
 
@@ -304,6 +423,8 @@ export function Scene() {
 
       {/* The Tapestry — 1-draw-call instanced mesh for occupied slots. */}
       <SaccadeInstancedMesh />
+      {/* Synapse renderer — single draw call line segments updated each frame */}
+      <SynapseRenderer />
 
       {/* Lasso overlay — runs BVH hit-test against the 8k lattice */}
       <LassoSelection />
@@ -336,6 +457,7 @@ export function Scene() {
 
       {/* HUD bridge — samples camera/FPS/invariants into useHudStore. */}
       <HudBridge />
+      <VrEnhancements />
     </>
   );
 }

@@ -197,6 +197,31 @@ export function CommandConsole() {
         }
         break;
       }
+      case "/goto": {
+        const slot = parseInt(arg, 10);
+        if (isNaN(slot)) { pushLog("/goto <slot>"); break; }
+        const s = useSaccadeStore.getState();
+        const frame = s.mockFrames[s.activeFrameIndex];
+        if (!frame || slot < 0 || slot >= MAX_NODES) { pushLog(`slot ${arg} out of range [0..${MAX_NODES - 1}]`); break; }
+        const off = slot * STRIDE;
+        const px = frame[off], py = frame[off + 1], pz = frame[off + 2];
+        useHudStore.getState().requestDive({ x: px, y: py, z: pz });
+        useHudStore.getState().setCellViewSlot(slot);
+        pushLog(`diving to vram[${slot}]`);
+        break;
+      }
+      case "/focus": {
+        const slot = parseInt(arg, 10);
+        if (isNaN(slot)) { pushLog("/focus <slot>"); break; }
+        const s = useSaccadeStore.getState();
+        if (slot < 0 || slot >= MAX_NODES) { pushLog(`slot ${arg} out of range [0..${MAX_NODES - 1}]`); break; }
+        s.setSelectedSlots(new Set([slot]));
+        // dim others via search overlay with single match
+        s.setSearchMatches([{ slot, score: 1 }]);
+        useHudStore.getState().setCellViewSlot(slot);
+        pushLog(`focused vram[${slot}]`);
+        break;
+      }
       case "/events": {
         let pool = hud.events;
         if (arg) {

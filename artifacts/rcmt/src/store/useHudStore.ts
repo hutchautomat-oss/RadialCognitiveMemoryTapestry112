@@ -248,7 +248,9 @@ interface HudStore {
 
   drawCalls: number;
   instancedCount: number;
+  bvhMs: number;
   setRendererStats: (drawCalls: number, instancedCount: number) => void;
+  setBvhMs: (ms: number) => void;
 
   net: NetTelemetry;
   setNet: (patch: Partial<NetTelemetry>) => void;
@@ -295,6 +297,12 @@ interface HudStore {
    */
   diveRequest: { x: number; y: number; z: number; epoch: number } | null;
   requestDive: (pos: { x: number; y: number; z: number }) => void;
+  /** Slot currently opened in the CellView overlay (full-panel). Null = closed. */
+  cellViewSlot: number | null;
+  setCellViewSlot: (slot: number | null) => void;
+  /** Accessibility: reduce motion disables certain UI animation easing. */
+  reducedMotion: boolean;
+  setReducedMotion: (v: boolean) => void;
 }
 
 const emptyInvariant = (): InvariantState => ({
@@ -340,8 +348,10 @@ export const useHudStore = create<HudStore>((set, get) => ({
 
   drawCalls: 0,
   instancedCount: 0,
+  bvhMs: 0,
   setRendererStats: (drawCalls, instancedCount) =>
     set({ drawCalls, instancedCount }),
+  setBvhMs: (ms) => set({ bvhMs: ms }),
 
   net: {
     connected: false,
@@ -451,6 +461,11 @@ export const useHudStore = create<HudStore>((set, get) => ({
         },
       };
     }),
+  /** Slot currently opened in the CellView overlay (full-panel). Null = closed. */
+  cellViewSlot: null,
+  setCellViewSlot: (slot) => set({ cellViewSlot: slot }),
+  reducedMotion: false,
+  setReducedMotion: (v) => set({ reducedMotion: v }),
 }));
 
 /** Module-level shortcut so non-React modules can push events without subscribing. */

@@ -1,20 +1,31 @@
 import { Suspense, useEffect, useState, Component, ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
+import { VRButton, XR } from "@react-three/xr";
 import { Scene } from "./components/Scene";
+import { CommandConsole } from "./components/CommandConsole";
 import { Timeline } from "./components/Timeline";
 import { ThoughtTicker } from "./components/ThoughtTicker";
 import { HoverTooltip } from "./components/HoverTooltip";
 import { SelectedMemory } from "./components/SelectedMemory";
 import { PeripheralFlash } from "./components/PeripheralFlash";
 import { HudOnboarding } from "./components/HudOnboarding";
-import { CommandDock } from "./components/hud";
+import {
+  SyncCore,
+  Ontology,
+  EventStream,
+  Invariants,
+  CameraReadout,
+  EpistemicBalance,
+  TelemetryBar,
+  HudModeToggle,
+} from "./components/hud";
+import { CellView } from "./components/hud/CellView";
 import { NetworkManager } from "./network/NetworkManager";
-import { bootLoadFromLocalStorage, scheduleAutosave, flushAutosave } from "./lib/tapestryPersist";
 import { OnnxWorker } from "./workers/OnnxWorkerManager";
 import { pushHudEvent, useHudStore } from "./store/useHudStore";
 import { COLOR, FONT } from "./components/hud/tokens";
 
-// ââ WebGL Error Boundary âââââââââââââââââââââââââââââââââââââ
+// ── WebGL Error Boundary ─────────────────────────────────────
 class WebGLErrorBoundary extends Component<
   { children: ReactNode },
   { error: string | null }
@@ -74,7 +85,7 @@ function LoadingOverlay() {
         letterSpacing: 1,
       }}
     >
-      INITIALIZING RCMT LATTICEâ¦
+      INITIALIZING RCMT LATTICE…
     </div>
   );
 }
@@ -84,13 +95,13 @@ export default function App() {
   // ThoughtTicker (so it stops firing ONNX classifications nobody can see) and
   // switch the R3F render loop to "demand" so the Canvas stops repainting every
   // frame. Returning to the tab restores "always" rendering and clears the
-  // auto-pause â without touching the user's manual `/pause` choice.
+  // auto-pause — without touching the user's manual `/pause` choice.
   const [tabHidden, setTabHidden] = useState(
     () => typeof document !== "undefined" && document.hidden,
   );
 
   useEffect(() => {
-    // Sync the initial state in case the app mounts in a background tab â done
+    // Sync the initial state in case the app mounts in a background tab — done
     // silently (no event) so we only log genuine visibility transitions.
     useHudStore.getState().setTickerAutoPaused(document.hidden);
 
@@ -101,8 +112,8 @@ export default function App() {
       pushHudEvent({
         type: hidden ? "PAUSE" : "RESUME",
         detail: hidden
-          ? "tab hidden â auto-paused render + ticker (energy save)"
-          : "tab visible â auto-resumed live rendering",
+          ? "tab hidden — auto-paused render + ticker (energy save)"
+          : "tab visible — auto-resumed live rendering",
       });
     }
 
@@ -110,38 +121,12 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
-  // ── Persistence: boot-load from localStorage ───────────────────────
-  // Attempt to restore the tapestry from a previous session. Runs once
-  // after mount, before the ONNX/network effects (React fires useEffects
-  // in declaration order). Boot-load is local-only so no network is needed.
-  // scheduleAutosave() is exported from tapestryPersist and triggers a
-  // debounced 30s write to localStorage on every lattice mutation; we
-  // kick the first save here so a fresh session starts counting.
-  useEffect(() => {
-    const result = bootLoadFromLocalStorage();
-    if (result) {
-      pushHudEvent({
-        type: result.ok ? "INFO" : "ERROR",
-        detail: result.ok
-          ? `session restored — ${result.slotCount} slots loaded from sovereign_save_key`
-          : `boot-load failed: ${result.message}`,
-      });
-    }
-    scheduleAutosave();
-
-    function onBeforeUnload() {
-      flushAutosave();
-    }
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, []);
-
   useEffect(() => {
     NetworkManager.connect();
     // Boot the ONNX classifier worker so injections actually run through the
     // 25 MB MiniLM model instead of silently falling back to the keyword
     // heuristic. Status transitions are surfaced by the SyncCore ENGINE pill
-    // (single owner of onStatusChange â don't add another subscriber here or
+    // (single owner of onStatusChange — don't add another subscriber here or
     // the last writer wins). We poll currentStatus once on the next tick so
     // a transition to ERROR also lands in the event ring as a hard signal.
     OnnxWorker.initialize();
@@ -150,7 +135,7 @@ export default function App() {
       if (s === "ERROR") {
         pushHudEvent({
           type: "ERROR",
-          detail: "ONNX classifier failed to load â keyword fallback active",
+          detail: "ONNX classifier failed to load — keyword fallback active",
         });
         clearInterval(id);
       } else if (s === "READY" || s === "CLASSIFY_COMPLETE") {
@@ -175,29 +160,43 @@ export default function App() {
         fontFamily: FONT,
       }}
     >
-      {/* 3D Canvas â outer DOM-level Suspense shows the loading overlay
+      {/* 3D Canvas — outer DOM-level Suspense shows the loading overlay
           until the lazy 3D subtree resolves; the inner R3F Suspense uses
           a null fallback because its children render inside WebGL, not DOM. */}
       <Suspense fallback={<LoadingOverlay />}>
         <WebGLErrorBoundary>
           <Canvas
             frameloop={tabHidden ? "demand" : "always"}
-            gl={{ antialias: true, alpha: false }}
-            camera={{ position: [0, 25, 95], fov: 70, near: 0.5, far: 500 }}
+            gl={{ antialias: true, alpha: false, xrCompatible: true, powerPreference: "high-performance" }}
+            camera={{ position: [0, 25, 95], fov: 60, near: 0.1, far: 500 }}
             style={{ position: "absolute", inset: 0 }}
             onCreated={({ gl }) => {
               gl.setClearColor(COLOR.bgSolid, 1);
+              gl.xr.enabled = true;
+              gl.xr.setReferenceSpaceType("local-floor");
             }}
           >
-            <Suspense fallback={null}>
-              <Scene />
-            </Suspense>
+            <XR sessionInit={{ optionalFeatures: ["local-floor", "bounded-floor", "hand-tracking"] }}>
+              <Suspense fallback={null}>
+                <Scene />
+              </Suspense>
+            </XR>
           </Canvas>
+          <VRButton style={{ position: "absolute", top: 16, right: 16, zIndex: 20 }} />
         </WebGLErrorBoundary>
       </Suspense>
 
-      {/* Cockpit HUD — Command Dock B layout */}
-      <CommandDock />
+      {/* Aerospace telemetry HUD */}
+      <HudModeToggle />
+      <Invariants />
+      <SyncCore />
+      <Ontology />
+      <EpistemicBalance />
+      <CameraReadout />
+      <EventStream />
+      <CellView />
+      <CommandConsole />
+      <TelemetryBar />
       <Timeline />
       <HoverTooltip />
       <SelectedMemory />
@@ -225,7 +224,7 @@ export default function App() {
           textAlign: "center",
         }}
       >
-        RCMT PLATINUM v5.1 Â· RADIAL COGNITIVE MEMORY TAPESTRY
+        RCMT PLATINUM v5.1 · RADIAL COGNITIVE MEMORY TAPESTRY
       </div>
     </div>
   );

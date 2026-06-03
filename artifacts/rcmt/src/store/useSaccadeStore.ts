@@ -40,6 +40,7 @@ import { MeshBVH } from "three-mesh-bvh";
 import { SaccadeWorker } from "../workers/SaccadeWorkerManager";
 import { pushHudEvent } from "./useHudStore";
 import { TIER_LABEL, TIER_BAND } from "../lib/tierNarration";
+import { enqueueUpdate, buildUpdatePacket, buildClaimPacket, drainOutboundUpdates } from "../network/outboundPackets";
 // Calibration seam — tuned/curated values the engine reads but does not derive.
 // Centralized in `../lib/calibration` so the engine/secret-sauce boundary is
 // explicit (see `docs/protection-boundary.md`). Re-exported below where the
@@ -77,6 +78,13 @@ export function drainRemoteFlashes(): RemoteFlash[] {
   const out = _remoteFlashQueue;
   _remoteFlashQueue = [];
   return out;
+}
+
+/** Push a remote flash (called from NetworkManager when processing incoming updates). */
+export function pushRemoteFlash(flash: RemoteFlash): void {
+  if (_remoteFlashQueue.length < REMOTE_FLASH_CAP) {
+    _remoteFlashQueue.push(flash);
+  }
 }
 
 export const MAX_NODES = 8000;
@@ -274,6 +282,17 @@ function l2Normalize(v: Float32Array): Float32Array {
   if (Math.abs(inv - 1) < 1e-6) return v;
   for (let i = 0; i < v.length; i++) v[i] *= inv;
   return v;
+}
+
+// Hamiltonian helpers: map per-slot decay to an energy scalar H = ln(health).
+export function computeHealthFromInjected(lambda: number, nowMs: number, injectedAtMs: number): number {
+  const dt = Math.max(0, (nowMs - injectedAtMs) / 1000);
+  return Math.exp(-lambda * dt);
+}
+
+export function energyFromHealth(health: number): number {
+  // health in (0,1] -> energy H = ln(health) ∈ (-∞, 0]
+  return Math.log(Math.max(1e-12, health));
 }
 
 /** Result of a single injectLiveIntentVector call. */
@@ -599,24 +618,14 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     set({ bvhDirty: true });
   },
 
-  applyRemoteUpdate: (slot, x, y, z) => {
-    const { mockFrames, activeFrameIndex, slotTier } = get();
-    const frame = mockFrames[activeFrameIndex];
-    if (!frame) return;
+  applyRemoteUpdate: (slot, _x, _y, _z) => {
+    // DEPRECATED: The master buffer in NetworkManager is now the sole source
+    // of truth for spatial data. Remote updates are applied directly to the
+    // buffer and never converted to React state. This method is kept for
+    // backward compatibility but does nothing — spatial data flows directly
+    // from the master buffer to the renderer without touching React state.
+    // The "rcmt-buffer-dirty" event triggers React to signal the renderer.
     if (slot < 0 || slot >= MAX_NODES) return;
-    const off = slot * STRIDE;
-    // Position-only sync mirrors the legacy behavior. A vacant slot stays
-    // vacant — peer-driven slot allocation is a separate (future) feature.
-    if (frame[off + 6] <= 0) return;
-    frame[off + 0] = x;
-    frame[off + 1] = y;
-    frame[off + 2] = z;
-    // Queue a peripheral-motion cue: a remote peer just mutated a (background)
-    // node. PeripheralFlashBridge drains this each frame and flashes the edge
-    // sector the node projects to. Bounded so a packet burst can't grow it.
-    if (_remoteFlashQueue.length < REMOTE_FLASH_CAP) {
-      _remoteFlashQueue.push({ x, y, z, tier: slotTier[slot] });
-    }
     set({ bvhDirty: true });
   },
 
@@ -684,27 +693,22 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     );
 
     // ── Step 1: reinforcement check ──────────────────────────────
-    // Scan every active slot's stored embedding for max cosine similarity.
-    // Both sides are L2-normalized, so cosine = dot product.
+    // Reduce over the index space to find the best cosine match (functional).
     let reinforcedSlot = -1;
     if (embedding && embedding.length === EMBEDDING_DIM) {
-      let bestSim = -Infinity;
-      let bestIdx = -1;
-      for (let i = 0; i < MAX_NODES; i++) {
-        if (mass[i] <= 0) continue;
-        const base = i * EMBEDDING_DIM;
-        let s = 0;
-        for (let k = 0; k < EMBEDDING_DIM; k++) {
-          s += embedding[k] * embeddings[base + k];
-        }
-        if (s > bestSim) {
-          bestSim = s;
-          bestIdx = i;
-        }
-      }
-      if (bestIdx >= 0 && bestSim > REINFORCE_SIM_THRESHOLD) {
-        reinforcedSlot = bestIdx;
-      }
+      const indices = Array.from({ length: MAX_NODES }, (_, i) => i);
+      const { bestIdx, bestSim } = indices.reduce(
+        (acc, i) => {
+          if (mass[i] <= 0) return acc;
+          const base = i * EMBEDDING_DIM;
+          let s = 0;
+          for (let k = 0; k < EMBEDDING_DIM; k++) s += embedding[k] * embeddings[base + k];
+          if (s > acc.bestSim) return { bestIdx: i, bestSim: s };
+          return acc;
+        },
+        { bestIdx: -1, bestSim: -Infinity } as { bestIdx: number; bestSim: number },
+      );
+      if (bestIdx >= 0 && bestSim > REINFORCE_SIM_THRESHOLD) reinforcedSlot = bestIdx;
     }
 
     const now = performance.now();
@@ -712,27 +716,33 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     if (reinforcedSlot >= 0) {
       const i = reinforcedSlot;
       const off = i * STRIDE;
+
+      // Determine promotion eligibility using the pre-reinforcement energy H = ln(health).
+      const prevInjected = injectedAt[i];
+      const tierBefore = slotTier[i];
+      const lambdaBefore = TIER_LAMBDA[tierBefore - 1];
+      const healthBefore = computeHealthFromInjected(lambdaBefore, now, prevInjected);
+      const H = energyFromHealth(healthBefore);
+
+      // Update physical state (reinforcement) after computing energy predicate.
       spawnTime[i] = now;
       injectedAt[i] = now;
       mass[i] = Math.min(mass[i] + MASS_REINFORCE_INCR, MASS_REINFORCE_CAP);
       reinforcementCount[i] = Math.min(255, reinforcementCount[i] + 1);
       currentFrame[off + 6] = mass[i];
-      // Update the source phrase to the most recent reinforcing input so the
-      // tooltip reflects what the user just typed (not a stale earlier seed).
       if (phrase !== undefined) state.slotPhrase[i] = phrase;
 
-      const reinforcedTier = slotTier[i];
-      // Promotion gated to slots 4 and 5 only.
-      if (
-        (reinforcedTier === 4 || reinforcedTier === 5) &&
-        reinforcementCount[i] >= REINFORCE_PROMOTE_COUNT
-      ) {
-        const promoted = promoteSlot(i, get, set);
-        if (promoted !== null) {
-          return { index: promoted, kind: "promote", tier: slotTier[promoted] };
+      const reinforcedTier = tierBefore;
+      // Promotion gate: deterministic Hamiltonian threshold H ∈ [-2.0, 0) && tier > 1 && strikes >= threshold.
+      if (H >= -2.0 && H < 0 && reinforcedTier > 1 && reinforcementCount[i] >= REINFORCE_PROMOTE_COUNT) {
+        const plan = planPromoteSlot(i, state, now);
+        if (plan !== null) {
+          set(plan.update);
+          return { index: plan.destIdx, kind: "promote", tier: state.slotTier[plan.destIdx] };
         }
         return { index: i, kind: "reinforce", tier: reinforcedTier };
       }
+
       set({ bvhDirty: true });
       return { index: i, kind: "reinforce", tier: reinforcedTier };
     }
@@ -750,30 +760,29 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       const start = TIER_STARTS[tierIdx];
       const end = start + TIER_CAPS[tierIdx];
       const lambda = TIER_LAMBDA[tierIdx];
-      let worstHealth = Infinity;
-      let worstIdx = -1;
-      for (let i = start; i < end; i++) {
-        if (mass[i] <= 0) continue;
-        const dt = (now - injectedAt[i]) / 1000;
-        const health = Math.exp(-lambda * dt);
-        if (health < worstHealth) {
-          worstHealth = health;
-          worstIdx = i;
-        }
-      }
-      if (worstIdx < 0) {
+      const range = Array.from({ length: end - start }, (_, j) => start + j);
+      const worst = range.reduce(
+        (acc, i) => {
+          if (mass[i] <= 0) return acc;
+          const health = computeHealthFromInjected(lambda, now, injectedAt[i]);
+          if (health < acc.worstHealth) return { worstIdx: i, worstHealth: health };
+          return acc;
+        },
+        { worstIdx: -1, worstHealth: Infinity } as { worstIdx: number; worstHealth: number },
+      );
+      if (worst.worstIdx < 0) {
         console.warn(
           `[Saccade] Tier ${tier1Based} reports full but no occupant found — injection aborted.`,
         );
         return null;
       }
-      targetIndex = worstIdx;
+      targetIndex = worst.worstIdx;
       // Wipe the evicted slot's state; we'll repopulate below.
-      spawnTime[worstIdx] = 0;
-      mass[worstIdx] = 0;
-      reinforcementCount[worstIdx] = 0;
-      injectedAt[worstIdx] = 0;
-      state.slotPhrase[worstIdx] = null;
+      spawnTime[targetIndex] = 0;
+      mass[targetIndex] = 0;
+      reinforcementCount[targetIndex] = 0;
+      injectedAt[targetIndex] = 0;
+      state.slotPhrase[targetIndex] = null;
       // No vacant entry to splice in — we're reusing the same index.
       // nextVacantForTier stays []
     }
@@ -796,6 +805,16 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     mass[targetIndex] = safeScale;
     reinforcementCount[targetIndex] = 0;
     state.slotPhrase[targetIndex] = phrase ?? null;
+
+    // Enqueue a zero-copy Vector Update packet (OpCode 0x01) aligned to the
+    // renderer's 7-float stride so the network can broadcast it wholesale.
+    try {
+      const updateBuf = buildUpdatePacket(targetIndex, x, y, z, r, g, b, safeScale);
+      enqueueUpdate(updateBuf);
+    } catch (e) {
+      // Non-fatal - queueing is best-effort for now.
+      console.warn("[Saccade] Failed to enqueue outbound update", e);
+    }
 
     if (embedding && embedding.length === EMBEDDING_DIM) {
       const base = targetIndex * EMBEDDING_DIM;
@@ -857,17 +876,16 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
 
     const now = performance.now();
     const pruned: number[] = [];
-    // Candidates for outward demotion: { idx, health } for unreinforced,
-    // non-Dream slots that have faded below HEALTH_DEMOTE but are not yet dead.
     const demoteCandidates: { idx: number; health: number }[] = [];
 
-    for (let i = 0; i < MAX_NODES; i++) {
-      if (mass[i] <= 0) continue;
+    // Functional sweep: build candidate lists without imperative per-index loops.
+    const indices = Array.from({ length: MAX_NODES }, (_, i) => i);
+    indices.forEach((i) => {
+      if (mass[i] <= 0) return;
       const tier = slotTier[i];
-      if (tier < 1) continue;
+      if (tier < 1) return;
       const lambda = TIER_LAMBDA[tier - 1];
-      const dt = (now - injectedAt[i]) / 1000;
-      const health = Math.exp(-lambda * dt);
+      const health = computeHealthFromInjected(lambda, now, injectedAt[i]);
       if (health < HEALTH_DEATH) {
         const off = i * STRIDE;
         frame[off + 6] = 0;
@@ -875,19 +893,18 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
         spawnTime[i] = 0;
         injectedAt[i] = 0;
         slotPhrase[i] = null;
-        // Clear embedding so a recycled slot can't false-match.
         const base = i * EMBEDDING_DIM;
         for (let k = 0; k < EMBEDDING_DIM; k++) embeddings[base + k] = 0;
         pruned.push(i);
       } else if (
         health < HEALTH_DEMOTE &&
-        tier < TIER_CAPS.length && // Dream (tier 5) is the outer rim — can't drift further
-        reinforcementCount[i] === 0 && // reinforced nodes have earned grounding
-        animStartTime[i] === 0 // not already mid-flight (promotion or a prior demotion)
+        tier < TIER_CAPS.length &&
+        reinforcementCount[i] === 0 &&
+        animStartTime[i] === 0
       ) {
         demoteCandidates.push({ idx: i, health });
       }
-    }
+    });
 
     // ── Outward demotion drift (mirror of inward promotion) ──────────
     // The lowest-health unreinforced nodes sort outward toward the rim. Bounded
@@ -900,9 +917,11 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       for (let c = 0; c < budget; c++) {
         const sourceIdx = demoteCandidates[c].idx;
         const fromTier = slotTier[sourceIdx];
-        const dest = demoteSlot(sourceIdx, get, set);
-        if (dest === null) continue;
-        const toTier = slotTier[dest];
+        const plan = planDemoteSlot(sourceIdx, state, now);
+        if (!plan) continue;
+        set(plan.update);
+        const dest = plan.destIdx;
+        const toTier = state.slotTier[dest];
         pushHudEvent({
           type: "DEMOTE",
           slot: dest,
@@ -1067,13 +1086,11 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     frame[off + 6] = mass[slot];
     const tier = slotTier[slot];
     // Promotion gated to Theory/Dream (4,5) at the strike threshold, same as inject.
-    if (
-      (tier === 4 || tier === 5) &&
-      reinforcementCount[slot] >= REINFORCE_PROMOTE_COUNT
-    ) {
-      const promoted = promoteSlot(slot, get, set);
-      if (promoted !== null) {
-        return { index: promoted, kind: "promote", tier: slotTier[promoted] };
+    if ((tier === 4 || tier === 5) && reinforcementCount[slot] >= REINFORCE_PROMOTE_COUNT) {
+      const plan = planPromoteSlot(slot, state, now);
+      if (plan !== null) {
+        set(plan.update);
+        return { index: plan.destIdx, kind: "promote", tier: state.slotTier[plan.destIdx] };
       }
       return { index: slot, kind: "reinforce", tier };
     }
@@ -1089,7 +1106,10 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       return null;
     }
     if (state.slotTier[slot] <= 1) return null; // already at the Fact core
-    return promoteSlot(slot, get, set);
+    const plan = planPromoteSlot(slot, state, performance.now());
+    if (!plan) return null;
+    set(plan.update);
+    return plan.destIdx;
   },
 
   demoteSlotManual: (slot) => {
@@ -1100,7 +1120,10 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       return null;
     }
     if (state.slotTier[slot] >= TIER_CAPS.length) return null; // already at the rim
-    return demoteSlot(slot, get, set);
+    const plan = planDemoteSlot(slot, state, performance.now());
+    if (!plan) return null;
+    set(plan.update);
+    return plan.destIdx;
   },
 
   evictSlot: (slot) => {
@@ -1219,6 +1242,7 @@ function promoteSlot(
   get: () => SaccadeStore,
   set: (partial: Partial<SaccadeStore>) => void,
 ): number | null {
+  // Deprecated: kept for compatibility. Use planPromoteSlot and apply set() instead.
   const state = get();
   const {
     mockFrames,
@@ -1369,6 +1393,328 @@ function promoteSlot(
   });
 
   return destIdx;
+}
+
+/**
+ * Planner: compute a pure state update for promoting `sourceIdx` one tier inward.
+ * Returns `{ update, destIdx }` or `null` if promotion cannot occur.
+ */
+function planPromoteSlot(
+  sourceIdx: number,
+  state: SaccadeStore,
+  now: number,
+): { update: Partial<SaccadeStore>; destIdx: number } | null {
+  const {
+    mockFrames,
+    activeFrameIndex,
+    slotTier,
+    vacantSlotsByTier,
+    tierCounts,
+    mass,
+    injectedAt,
+    embeddings,
+    spawnTime,
+    reinforcementCount,
+    animStartTime,
+    animFromPos,
+    animToPos,
+    slotPhrase,
+  } = state;
+
+  const sourceTier = slotTier[sourceIdx];
+  if (sourceTier <= 1) return null;
+  const targetTier = sourceTier - 1;
+  const targetTierIdx = targetTier - 1;
+
+  const frame = mockFrames[activeFrameIndex];
+  if (!frame) return null;
+
+  // copy-on-write slices
+  const newFrames = mockFrames.slice();
+  const frameCopy = new Float32Array(frame);
+  newFrames[activeFrameIndex] = frameCopy;
+
+  const newMass = new Float32Array(mass);
+  const newInjectedAt = new Float64Array(injectedAt);
+  const newReinforcement = new Uint8Array(reinforcementCount);
+  const newSpawn = new Float32Array(spawnTime);
+  const newAnimStart = new Float64Array(animStartTime);
+  const newAnimFrom = new Float32Array(animFromPos);
+  const newAnimTo = new Float32Array(animToPos);
+  const newEmb = new Float32Array(embeddings);
+  const newSlotPhrase = slotPhrase.slice();
+  const nextByTier = vacantSlotsByTier.map((arr) => arr.slice());
+  const nextCounts = tierCounts.slice();
+
+  let destIdx: number;
+  let nextVacantForTarget = nextByTier[targetTierIdx];
+  let consumedVacant = false;
+  if (nextVacantForTarget.length > 0) {
+    destIdx = nextVacantForTarget[0];
+    nextVacantForTarget = nextVacantForTarget.slice(1);
+    consumedVacant = true;
+  } else {
+    const start = TIER_STARTS[targetTierIdx];
+    const end = start + TIER_CAPS[targetTierIdx];
+    const lambda = TIER_LAMBDA[targetTierIdx];
+    const range = Array.from({ length: end - start }, (_, j) => start + j);
+    const worst = range.reduce(
+      (acc, i) => {
+        if (newMass[i] <= 0) return acc;
+        const health = computeHealthFromInjected(lambda, now, newInjectedAt[i]);
+        if (health < acc.worstHealth) return { worstIdx: i, worstHealth: health };
+        return acc;
+      },
+      { worstIdx: -1, worstHealth: Infinity } as { worstIdx: number; worstHealth: number },
+    );
+    if (worst.worstIdx < 0) return null;
+    destIdx = worst.worstIdx;
+    // wipe evicted destination
+    const evictedOff = destIdx * STRIDE;
+    frameCopy[evictedOff + 6] = 0;
+    newMass[destIdx] = 0;
+    newInjectedAt[destIdx] = 0;
+    newReinforcement[destIdx] = 0;
+    newSpawn[destIdx] = 0;
+    newAnimStart[destIdx] = 0;
+    newSlotPhrase[destIdx] = null;
+  }
+
+  const srcOff = sourceIdx * STRIDE;
+  const dstOff = destIdx * STRIDE;
+  const srcMass = newMass[sourceIdx];
+  const srcInjectedAt = newInjectedAt[sourceIdx];
+
+  const fromX = frame[srcOff + 0];
+  const fromY = frame[srcOff + 1];
+  const fromZ = frame[srcOff + 2];
+  const [toX, toY, toZ] = latticePosition(destIdx, targetTier);
+  const [newR, newG, newB] = TIER_RGB[targetTier - 1];
+
+  // write dest at anim origin
+  frameCopy[dstOff + 0] = fromX;
+  frameCopy[dstOff + 1] = fromY;
+  frameCopy[dstOff + 2] = fromZ;
+  frameCopy[dstOff + 3] = newR;
+  frameCopy[dstOff + 4] = newG;
+  frameCopy[dstOff + 5] = newB;
+  frameCopy[dstOff + 6] = srcMass;
+
+  newMass[destIdx] = srcMass;
+  newInjectedAt[destIdx] = srcInjectedAt;
+  newReinforcement[destIdx] = 0;
+  newSpawn[destIdx] = 0;
+
+  // copy embedding slot
+  const srcEmbBase = sourceIdx * EMBEDDING_DIM;
+  const dstEmbBase = destIdx * EMBEDDING_DIM;
+  for (let k = 0; k < EMBEDDING_DIM; k++) newEmb[dstEmbBase + k] = newEmb[srcEmbBase + k];
+
+  newAnimStart[destIdx] = now;
+  newAnimFrom[destIdx * 3 + 0] = fromX;
+  newAnimFrom[destIdx * 3 + 1] = fromY;
+  newAnimFrom[destIdx * 3 + 2] = fromZ;
+  newAnimTo[destIdx * 3 + 0] = toX;
+  newAnimTo[destIdx * 3 + 1] = toY;
+  newAnimTo[destIdx * 3 + 2] = toZ;
+
+  newSlotPhrase[destIdx] = newSlotPhrase[sourceIdx];
+
+  // free source
+  frameCopy[srcOff + 6] = 0;
+  newMass[sourceIdx] = 0;
+  newInjectedAt[sourceIdx] = 0;
+  newReinforcement[sourceIdx] = 0;
+  newSpawn[sourceIdx] = 0;
+  newAnimStart[sourceIdx] = 0;
+  newSlotPhrase[sourceIdx] = null;
+  for (let k = 0; k < EMBEDDING_DIM; k++) newEmb[srcEmbBase + k] = 0;
+
+  // tier bookkeeping
+  const sourceTierIdx = sourceTier - 1;
+  nextByTier[targetTierIdx] = nextVacantForTarget;
+  nextByTier[sourceTierIdx] = appendUniqueFIFO(nextByTier[sourceTierIdx], [sourceIdx]);
+  nextCounts[sourceTierIdx] = Math.max(0, nextCounts[sourceTierIdx] - 1);
+  if (consumedVacant) nextCounts[targetTierIdx] = Math.min(TIER_CAPS[targetTierIdx], nextCounts[targetTierIdx] + 1);
+
+  const update: Partial<SaccadeStore> = {
+    mockFrames: newFrames,
+    mass: newMass,
+    injectedAt: newInjectedAt,
+    reinforcementCount: newReinforcement,
+    spawnTime: newSpawn,
+    animStartTime: newAnimStart,
+    animFromPos: newAnimFrom,
+    animToPos: newAnimTo,
+    embeddings: newEmb,
+    slotPhrase: newSlotPhrase,
+    vacantSlotsByTier: nextByTier,
+    tierCounts: nextCounts,
+    bvhDirty: true,
+  };
+
+  return { update, destIdx };
+}
+
+/**
+ * Planner: compute a pure state update for demoting `sourceIdx` one tier outward.
+ * Returns `{ update, destIdx }` or `null` if demotion cannot occur.
+ */
+function planDemoteSlot(
+  sourceIdx: number,
+  state: SaccadeStore,
+  now: number,
+): { update: Partial<SaccadeStore>; destIdx: number } | null {
+  const {
+    mockFrames,
+    activeFrameIndex,
+    slotTier,
+    vacantSlotsByTier,
+    tierCounts,
+    mass,
+    injectedAt,
+    embeddings,
+    spawnTime,
+    reinforcementCount,
+    animStartTime,
+    animFromPos,
+    animToPos,
+    slotPhrase,
+  } = state;
+
+  if (mass[sourceIdx] <= 0) return null;
+  if (animStartTime[sourceIdx] !== 0) return null;
+
+  const sourceTier = slotTier[sourceIdx];
+  if (sourceTier >= TIER_CAPS.length) return null;
+  const targetTier = sourceTier + 1;
+  const targetTierIdx = targetTier - 1;
+
+  const frame = mockFrames[activeFrameIndex];
+  if (!frame) return null;
+
+  // copy-on-write
+  const newFrames = mockFrames.slice();
+  const frameCopy = new Float32Array(frame);
+  newFrames[activeFrameIndex] = frameCopy;
+
+  const newMass = new Float32Array(mass);
+  const newInjectedAt = new Float64Array(injectedAt);
+  const newReinforcement = new Uint8Array(reinforcementCount);
+  const newSpawn = new Float32Array(spawnTime);
+  const newAnimStart = new Float64Array(animStartTime);
+  const newAnimFrom = new Float32Array(animFromPos);
+  const newAnimTo = new Float32Array(animToPos);
+  const newEmb = new Float32Array(embeddings);
+  const newSlotPhrase = slotPhrase.slice();
+  const nextByTier = vacantSlotsByTier.map((arr) => arr.slice());
+  const nextCounts = tierCounts.slice();
+
+  let destIdx: number;
+  let nextVacantForTarget = nextByTier[targetTierIdx];
+  let consumedVacant = false;
+  if (nextVacantForTarget.length > 0) {
+    destIdx = nextVacantForTarget[0];
+    nextVacantForTarget = nextVacantForTarget.slice(1);
+    consumedVacant = true;
+  } else {
+    const start = TIER_STARTS[targetTierIdx];
+    const end = start + TIER_CAPS[targetTierIdx];
+    const lambda = TIER_LAMBDA[targetTierIdx];
+    const range = Array.from({ length: end - start }, (_, j) => start + j);
+    const worst = range.reduce(
+      (acc, i) => {
+        if (newMass[i] <= 0) return acc;
+        const health = computeHealthFromInjected(lambda, now, newInjectedAt[i]);
+        if (health < acc.worstHealth) return { worstIdx: i, worstHealth: health };
+        return acc;
+      },
+      { worstIdx: -1, worstHealth: Infinity } as { worstIdx: number; worstHealth: number },
+    );
+    if (worst.worstIdx < 0) return null;
+    destIdx = worst.worstIdx;
+    // wipe evicted destination
+    const evictedOff = destIdx * STRIDE;
+    frameCopy[evictedOff + 6] = 0;
+    newMass[destIdx] = 0;
+    newInjectedAt[destIdx] = 0;
+    newReinforcement[destIdx] = 0;
+    newSpawn[destIdx] = 0;
+    newAnimStart[destIdx] = 0;
+    newSlotPhrase[destIdx] = null;
+  }
+
+  const srcOff = sourceIdx * STRIDE;
+  const dstOff = destIdx * STRIDE;
+  const srcMass = newMass[sourceIdx];
+
+  const fromX = frame[srcOff + 0];
+  const fromY = frame[srcOff + 1];
+  const fromZ = frame[srcOff + 2];
+  const [toX, toY, toZ] = latticePosition(destIdx, targetTier);
+  const [newR, newG, newB] = TIER_RGB[targetTier - 1];
+
+  frameCopy[dstOff + 0] = fromX;
+  frameCopy[dstOff + 1] = fromY;
+  frameCopy[dstOff + 2] = fromZ;
+  frameCopy[dstOff + 3] = newR;
+  frameCopy[dstOff + 4] = newG;
+  frameCopy[dstOff + 5] = newB;
+  frameCopy[dstOff + 6] = srcMass;
+
+  newMass[destIdx] = srcMass;
+  // fresh decay clock on demotion
+  newInjectedAt[destIdx] = now;
+  newReinforcement[destIdx] = 0;
+  newSpawn[destIdx] = 0;
+
+  const srcEmbBase = sourceIdx * EMBEDDING_DIM;
+  const dstEmbBase = destIdx * EMBEDDING_DIM;
+  for (let k = 0; k < EMBEDDING_DIM; k++) newEmb[dstEmbBase + k] = newEmb[srcEmbBase + k];
+
+  newAnimStart[destIdx] = now;
+  newAnimFrom[destIdx * 3 + 0] = fromX;
+  newAnimFrom[destIdx * 3 + 1] = fromY;
+  newAnimFrom[destIdx * 3 + 2] = fromZ;
+  newAnimTo[destIdx * 3 + 0] = toX;
+  newAnimTo[destIdx * 3 + 1] = toY;
+  newAnimTo[destIdx * 3 + 2] = toZ;
+
+  newSlotPhrase[destIdx] = newSlotPhrase[sourceIdx];
+
+  // free source
+  frameCopy[srcOff + 6] = 0;
+  newMass[sourceIdx] = 0;
+  newInjectedAt[sourceIdx] = 0;
+  newReinforcement[sourceIdx] = 0;
+  newSpawn[sourceIdx] = 0;
+  newAnimStart[sourceIdx] = 0;
+  newSlotPhrase[sourceIdx] = null;
+  for (let k = 0; k < EMBEDDING_DIM; k++) newEmb[srcEmbBase + k] = 0;
+
+  const sourceTierIdx = sourceTier - 1;
+  nextByTier[targetTierIdx] = nextVacantForTarget;
+  nextByTier[sourceTierIdx] = appendUniqueFIFO(nextByTier[sourceTierIdx], [sourceIdx]);
+  nextCounts[sourceTierIdx] = Math.max(0, nextCounts[sourceTierIdx] - 1);
+  if (consumedVacant) nextCounts[targetTierIdx] = Math.min(TIER_CAPS[targetTierIdx], nextCounts[targetTierIdx] + 1);
+
+  const update: Partial<SaccadeStore> = {
+    mockFrames: newFrames,
+    mass: newMass,
+    injectedAt: newInjectedAt,
+    reinforcementCount: newReinforcement,
+    spawnTime: newSpawn,
+    animStartTime: newAnimStart,
+    animFromPos: newAnimFrom,
+    animToPos: newAnimTo,
+    embeddings: newEmb,
+    slotPhrase: newSlotPhrase,
+    vacantSlotsByTier: nextByTier,
+    tierCounts: nextCounts,
+    bvhDirty: true,
+  };
+
+  return { update, destIdx };
 }
 
 /**

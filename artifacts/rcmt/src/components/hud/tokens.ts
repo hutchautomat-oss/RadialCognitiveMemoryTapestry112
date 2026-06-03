@@ -9,27 +9,26 @@
 export const FONT = "'JetBrains Mono', 'Share Tech Mono', 'IBM Plex Mono', 'Courier New', monospace";
 
 export const COLOR = {
-  bg: "rgba(8,10,12,0.88)",
-  bgSolid: "#080a0c",
-  border: "#2a3338",
-  borderStrong: "#3a464d",
-  text: "#c6cdd1",
-  textDim: "#7a868c",
-  textMuted: "#5b6770",
-  nominal: "#6dd99e",
+  // Deepened background for improved contrast
+  bg: "rgba(10,12,16,0.92)",
+  bgSolid: "#0a0c10",
+  border: "#162027",
+  borderStrong: "#24343a",
+  text: "#e8ecf1",
+  textDim: "#95a0a6",
+  textMuted: "#6f7b80",
+  nominal: "#5dd89f",
   warn: "#e2a458",
-  fail: "#d75f5f",
-  accent: "#4fd1c5",
+  fail: "#f16b6b",
+  accent: "#28d4c9",
   accentDim: "#2d6e68",
-  // Tier chips — deliberately MUTED versions of the lattice palette
-  // (useSaccadeStore.TIER_RGB). The lattice nodes carry the vivid, opponent
-  // tier contrast; the dense HUD chrome stays low-chroma for legibility.
+  // HUD chip versions of the canonical tier palette (muted for chrome)
   tier: [
     "#2bb8a6", // Fact     — muted cyan-green
-    "#5aa84a", // Scenario — muted green
-    "#b8a23a", // Metric   — muted yellow
-    "#c2773f", // Theory   — muted orange
-    "#9a6fc2", // Dream    — muted violet
+    "#37e055", // Scenario — vivid green tuned
+    "#f0d54a", // Metric   — yellow
+    "#e08b4b", // Theory   — orange
+    "#b07bd1", // Dream    — violet
   ] as const,
 } as const;
 
@@ -37,30 +36,30 @@ export const cardShell: React.CSSProperties = {
   position: "fixed",
   background: COLOR.bg,
   border: `1px solid ${COLOR.border}`,
-  borderRadius: 2,
+  borderRadius: 6,
   fontFamily: FONT,
   color: COLOR.text,
-  fontSize: 10.5,
+  fontSize: 11,
   zIndex: 100,
-  backdropFilter: "blur(3px)",
-  letterSpacing: 0.3,
+  backdropFilter: "blur(4px)",
+  letterSpacing: 0.4,
 };
 
 export const cardHeader: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  padding: "5px 9px",
+  padding: "10px 14px",
   borderBottom: `1px solid ${COLOR.border}`,
-  background: "rgba(255,255,255,0.015)",
-  fontSize: 9.5,
+  background: "rgba(255,255,255,0.012)",
+  fontSize: 11,
   color: COLOR.textDim,
   textTransform: "uppercase",
   letterSpacing: 0.8,
 };
 
 export const cardBody: React.CSSProperties = {
-  padding: "8px 9px",
+  padding: "12px 16px",
 };
 
 export const TIER_NAMES = ["FACT", "SCENARIO", "METRIC", "THEORY", "DREAM"] as const;
