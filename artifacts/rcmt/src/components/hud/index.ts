@@ -6,3 +6,5 @@ export { CameraReadout } from "./CameraReadout";
 export { EpistemicBalance } from "./EpistemicBalance";
 export { TelemetryBar } from "./TelemetryBar";
 export { HudModeToggle } from "./HudModeToggle";
+
+export { CommandDock } from "./CommandDock";
