@@ -1,23 +1,13 @@
 import { Suspense, useEffect, useState, Component, ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Scene } from "./components/Scene";
-import { CommandConsole } from "./components/CommandConsole";
 import { Timeline } from "./components/Timeline";
 import { ThoughtTicker } from "./components/ThoughtTicker";
 import { HoverTooltip } from "./components/HoverTooltip";
 import { SelectedMemory } from "./components/SelectedMemory";
 import { PeripheralFlash } from "./components/PeripheralFlash";
 import { HudOnboarding } from "./components/HudOnboarding";
-import {
-  SyncCore,
-  Ontology,
-  EventStream,
-  Invariants,
-  CameraReadout,
-  EpistemicBalance,
-  TelemetryBar,
-  HudModeToggle,
-} from "./components/hud";
+import { CommandDock } from "./components/hud";
 import { NetworkManager } from "./network/NetworkManager";
 import { bootLoadFromLocalStorage, scheduleAutosave, flushAutosave } from "./lib/tapestryPersist";
 import { OnnxWorker } from "./workers/OnnxWorkerManager";
@@ -206,16 +196,8 @@ export default function App() {
         </WebGLErrorBoundary>
       </Suspense>
 
-      {/* Aerospace telemetry HUD */}
-      <HudModeToggle />
-      <Invariants />
-      <SyncCore />
-      <Ontology />
-      <EpistemicBalance />
-      <CameraReadout />
-      <EventStream />
-      <CommandConsole />
-      <TelemetryBar />
+      {/* Cockpit HUD — Command Dock B layout */}
+      <CommandDock />
       <Timeline />
       <HoverTooltip />
       <SelectedMemory />
