@@ -73,7 +73,7 @@ function SearchFocus() {
 
 // Distance the dive settles to once it reaches a cell — close enough to read a
 // single memory, far enough that the node fills the frame without clipping.
-const DIVE_TARGET_DISTANCE = 6;
+const DIVE_TARGET_DISTANCE = 4;
 const DIVE_MS = 900;
 const _diveTo = new Vector3();
 const _camDir = new Vector3();
@@ -269,7 +269,7 @@ export function Scene() {
           listenToKeyEvents={
             typeof window !== "undefined" ? window : undefined
           }
-          minDistance={1.5}
+          minDistance={3}
           maxDistance={CAM_ENVELOPE}
         />
       ) : (
@@ -286,9 +286,10 @@ export function Scene() {
           dampingFactor={0.06}
           rotateSpeed={0.5}
           zoomSpeed={0.8}
-          enablePan={false}
-          minDistance={2}
-          maxDistance={200}
+          enablePan
+          panSpeed={0.6}
+          minDistance={10}
+          maxDistance={180}
         />
       )}
 
