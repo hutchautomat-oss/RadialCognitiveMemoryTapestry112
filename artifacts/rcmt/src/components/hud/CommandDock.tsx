@@ -141,10 +141,10 @@ function SyncPanel() {
   return (
     <div style={{ ...panelStyle, left: 44, width: PANEL_W, padding: "10px 12px" }}>
       <div style={{ color: COLOR.textDim, fontSize: 9, letterSpacing: 0.8, marginBottom: 8 }}>SYNC CORE</div>
-      {row("LINK", net.wsState, net.wsState === "OPEN" ? COLOR.nominal : COLOR.fail)}
+      {row("LINK", net.connected ? "OPEN" : "CLOSED", net.connected ? COLOR.nominal : COLOR.fail)}
       {row("PEER", net.peerId >= 0 ? `#${net.peerId}` : "—")}
-      {row("PKT IN", `${net.packetsIn} (${net.rateIn.toFixed(1)}/s)`)}
-      {row("PKT OUT", `${net.packetsOut} (${net.rateOut.toFixed(1)}/s)`)}
+      {row("PKT IN", `${net.packetsIn} (${net.packetsInRate.toFixed(1)}/s)`)}
+      {row("PKT OUT", `${net.packetsOut} (${net.packetsOutRate.toFixed(1)}/s)`)}
       {row("ENGINE", onnxStatus)}
       {row("TICKER", ticker.running ? (ticker.autoPaused ? "IDLE" : "AUTO") : "PAUSE", ticker.running ? COLOR.nominal : COLOR.warn)}
     </div>
@@ -186,7 +186,7 @@ function InvariantsPanel() {
 }
 
 function CameraPanel() {
-  const { camera } = useHudStore();
+  const { camera, fps } = useHudStore();
   const row = (label: string, val: string) => (
     <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
       <span style={{ color: COLOR.textDim, fontSize: 9 }}>{label}</span>
@@ -196,11 +196,11 @@ function CameraPanel() {
   return (
     <div style={{ ...panelStyle, right: 44, width: 220, padding: "10px 12px" }}>
       <div style={{ color: COLOR.textDim, fontSize: 9, letterSpacing: 0.8, marginBottom: 8 }}>CAMERA</div>
-      {row("POS", `(${camera.x?.toFixed(1) ?? "—"}, ${camera.y?.toFixed(1) ?? "—"}, ${camera.z?.toFixed(1) ?? "—"})`)}
-      {row("DIST", `${camera.dist?.toFixed(1) ?? "—"}`)}
-      {row("AZ", `${camera.azimuth?.toFixed(1) ?? "—"}°`)}
-      {row("EL", `${camera.elevation?.toFixed(1) ?? "—"}°`)}
-      {row("FPS", `${camera.fps?.toFixed(0) ?? "—"}`)}
+      {row("POS", `(${camera?.px?.toFixed(1) ?? "\u2014"}, ${camera?.py?.toFixed(1) ?? "\u2014"}, ${camera?.pz?.toFixed(1) ?? "\u2014"})`)}
+      {row("DIST", `${camera?.distance?.toFixed(1) ?? "\u2014"}`)}
+      {row("AZ", "\u2014")}
+      {row("EL", "\u2014")}
+      {row("FPS", `${fps?.toFixed(0) ?? "\u2014"}`)}
     </div>
   );
 }
@@ -218,7 +218,7 @@ function TelemetryPanel() {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
         <span style={{ color: COLOR.textDim, fontSize: 9 }}>PKT RATE</span>
-        <span style={{ color: COLOR.text, fontSize: 9 }}>{(net.rateIn + net.rateOut).toFixed(1)}/s</span>
+        <span style={{ color: COLOR.text, fontSize: 9 }}>{(net.packetsInRate + net.packetsOutRate).toFixed(1)}/s</span>
       </div>
     </div>
   );
