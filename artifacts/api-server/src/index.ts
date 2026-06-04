@@ -48,6 +48,14 @@ const indexTimestampMap = new Float64Array(MAX_NODES).fill(0.0);
 
 const wss = new WebSocketServer({ server, path: "/socket" });
 
+function broadcastPeerCount() {
+  const count = wss.clients.size;
+  const frame = JSON.stringify({ type: "PEER_COUNT", count });
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) client.send(frame);
+  });
+}
+
 wss.on("connection", (ws) => {
   const peerId = Math.floor(Math.random() * 100000);
   logger.info({ peerId }, "RCMT peer connected");
@@ -59,6 +67,7 @@ wss.on("connection", (ws) => {
   } catch (err) {
     logger.error({ err, peerId }, "RCMT HELLO send failed");
   }
+  broadcastPeerCount();
 
   ws.on("message", (data) => {
     if (!Buffer.isBuffer(data)) return;
@@ -112,7 +121,10 @@ wss.on("connection", (ws) => {
     }
   });
 
-  ws.on("close", () => logger.info({ peerId }, "RCMT peer disconnected"));
+  ws.on("close", () => {
+    logger.info({ peerId }, "RCMT peer disconnected");
+    broadcastPeerCount();
+  });
   ws.on("error", (err) => logger.error({ err, peerId }, "RCMT WS error"));
 });
 
