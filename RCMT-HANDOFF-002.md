@@ -135,6 +135,27 @@ PRIORITY 3 — PHASE 3 PLANNING
 PRIORITY 4 — DOCS AUDIT
   docs/ folder has grown organically. Consider docs/INDEX.md.
 
+--- SESSION 003 (2026-06-04, Claude Code via web — claude/rcmt112-easter-eggs-ZeIPy) ---
+Status:    IN PROGRESS
+Key work:
+  - Easter egg catalogue: found 12 hidden items across codebase (undocumented /goto /focus
+    commands, hidden VR/XR mode, dead DEMOTE event type, corpus philosophy chain, tatus
+    --short accidental file, codespace name preservation, gradient GREEN band reveal,
+    protection-boundary no-tricks doctrine, VLM_ACUITY_S null placeholder, 10000.0 scale
+    reservation, convenient truths catalogue, wrapper product insight)
+  - PRIORITY 1 FIX: NetworkManager.connect() was using window.location.host instead of
+    VITE_WS_URL — root cause of "LINK shows LOCAL" on Netlify. Fixed + VITE_WS_URL baked
+    into netlify.toml. Also removed dead outboundPackets legacy queue (memory leak).
+  - PRIORITY 2: Wrapper product insight documented in docs/roadmap.md + one-page spec at
+    docs/roadmap/sovereign-session-wrapper.md
+  - PRIORITY 4: docs/INDEX.md created — single-entry navigation for all 28 docs files
+Left off at:
+  - PRIORITY 1 verification: multi-tab sync fix needs a Netlify redeploy to confirm.
+    After merge to main, open two tabs to rcmtfoveal.netlify.app and verify LINK shows
+    CONNECTED with peer count = 2 and phrase injected in Tab A appears in Tab B.
+  - PRIORITY 3: Phase 3 planning (homomorphic layer, TenSEAL) not yet started.
+  - Merge this branch (claude/rcmt112-easter-eggs-ZeIPy) to main to trigger Netlify redeploy.
+
 ==========================
 HOW TO EXTEND THIS HANDOFF
 ==========================
