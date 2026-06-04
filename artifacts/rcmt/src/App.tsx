@@ -23,6 +23,7 @@ import { CellView } from "./components/hud/CellView";
 import { NetworkManager } from "./network/NetworkManager";
 import { OnnxWorker } from "./workers/OnnxWorkerManager";
 import { pushHudEvent, useHudStore } from "./store/useHudStore";
+import { bootLoadFromLocalStorage, flushAutosave } from "./lib/tapestryPersist";
 import { COLOR, FONT } from "./components/hud/tokens";
 
 // ── WebGL Error Boundary ─────────────────────────────────────
@@ -122,6 +123,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Restore the tapestry from the last autosave before anything else fires.
+    const bootResult = bootLoadFromLocalStorage();
+    if (bootResult) {
+      pushHudEvent({
+        type: bootResult.ok ? "INFO" : "ERROR",
+        detail: bootResult.ok
+          ? `session restored — ${bootResult.slotCount} slots · saved ${bootResult.savedAt ? new Date(bootResult.savedAt).toLocaleTimeString() : "unknown"}`
+          : `save-key load failed: ${bootResult.message}`,
+      });
+    }
+
+    // Flush any pending debounced save on tab close so no mutations are lost.
+    window.addEventListener("beforeunload", flushAutosave);
+
     NetworkManager.connect();
     // Boot the ONNX classifier worker so injections actually run through the
     // 25 MB MiniLM model instead of silently falling back to the keyword
@@ -146,6 +161,7 @@ export default function App() {
     return () => {
       clearInterval(id);
       NetworkManager.disconnect();
+      window.removeEventListener("beforeunload", flushAutosave);
     };
   }, []);
 
