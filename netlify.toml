@@ -19,6 +19,9 @@
                     # BASE_PATH must be "/" for a root-hosted Netlify site (read by vite.config.ts).
                       BASE_PATH = "/"
                         NODE_ENV  = "production"
+                          # WebSocket URL for the Render LWW sync core.
+                          # Vite bakes this into the JS bundle at build time (import.meta.env.VITE_WS_URL).
+                          VITE_WS_URL = "wss://radialcognitivememorytapestry112.onrender.com"
                         
                         # SPA fallback. Also covered by the _redirects file in the publish dir; kept
                         # here as belt-and-suspenders so client-side routing works on deep links.

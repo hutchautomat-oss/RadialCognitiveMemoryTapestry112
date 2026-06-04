@@ -40,7 +40,6 @@ import { MeshBVH } from "three-mesh-bvh";
 import { SaccadeWorker } from "../workers/SaccadeWorkerManager";
 import { pushHudEvent } from "./useHudStore";
 import { TIER_LABEL, TIER_BAND } from "../lib/tierNarration";
-import { enqueueUpdate, buildUpdatePacket, buildClaimPacket, drainOutboundUpdates } from "../network/outboundPackets";
 // Calibration seam — tuned/curated values the engine reads but does not derive.
 // Centralized in `../lib/calibration` so the engine/secret-sauce boundary is
 // explicit (see `docs/protection-boundary.md`). Re-exported below where the
@@ -805,16 +804,6 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     mass[targetIndex] = safeScale;
     reinforcementCount[targetIndex] = 0;
     state.slotPhrase[targetIndex] = phrase ?? null;
-
-    // Enqueue a zero-copy Vector Update packet (OpCode 0x01) aligned to the
-    // renderer's 7-float stride so the network can broadcast it wholesale.
-    try {
-      const updateBuf = buildUpdatePacket(targetIndex, x, y, z, r, g, b, safeScale);
-      enqueueUpdate(updateBuf);
-    } catch (e) {
-      // Non-fatal - queueing is best-effort for now.
-      console.warn("[Saccade] Failed to enqueue outbound update", e);
-    }
 
     if (embedding && embedding.length === EMBEDDING_DIM) {
       const base = targetIndex * EMBEDDING_DIM;
