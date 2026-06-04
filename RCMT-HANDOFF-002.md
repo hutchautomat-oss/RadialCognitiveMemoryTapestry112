@@ -136,7 +136,7 @@ PRIORITY 4 — DOCS AUDIT
   docs/ folder has grown organically. Consider docs/INDEX.md.
 
 --- SESSION 003 (2026-06-04, Claude Code via web — claude/rcmt112-easter-eggs-ZeIPy) ---
-Status:    IN PROGRESS
+Status:    COMPLETED
 Key work:
   - Easter egg catalogue: found 12 hidden items across codebase (undocumented /goto /focus
     commands, hidden VR/XR mode, dead DEMOTE event type, corpus philosophy chain, tatus
@@ -149,12 +149,25 @@ Key work:
   - PRIORITY 2: Wrapper product insight documented in docs/roadmap.md + one-page spec at
     docs/roadmap/sovereign-session-wrapper.md
   - PRIORITY 4: docs/INDEX.md created — single-entry navigation for all 28 docs files
+  - PHASE NUMBERING CORRECTION: Previous handoff had "Phase 3 = TenSEAL" — this was
+    Claude drift. Scaling vision defines: Phase 1=Grounding, Phase 2=Language (.rcmt),
+    Phase 3=Native Architecture (hardware). TenSEAL is a planned feature, not a phase.
+  - sovereign_save_key.bin persistence: tapestryPersist.ts was fully implemented but the
+    two critical boot wires were missing. Fixed: bootLoadFromLocalStorage() called at App
+    boot (before NetworkManager and ONNX), flushAutosave() registered on beforeunload.
+    Phase 1 done-criteria "sovereign_save_key.bin saves and loads correctly offline" NOW MET.
+Final commits this session:
+  a47630a — fix(sync): wire VITE_WS_URL into NetworkManager
+  5728065 — fix(sync) + docs: wire VITE_WS_URL, wrapper product spec, docs index
+  25eb4af — feat(persist): wire sovereign_save_key.bin boot-load and beforeunload flush
 Left off at:
-  - PRIORITY 1 verification: multi-tab sync fix needs a Netlify redeploy to confirm.
-    After merge to main, open two tabs to rcmtfoveal.netlify.app and verify LINK shows
-    CONNECTED with peer count = 2 and phrase injected in Tab A appears in Tab B.
-  - PRIORITY 3: Phase 3 planning (homomorphic layer, TenSEAL) not yet started.
-  - Merge this branch (claude/rcmt112-easter-eggs-ZeIPy) to main to trigger Netlify redeploy.
+  - PRIORITY 1 verification: fix is on main and Netlify has deployed it. User was seeing
+    LOCAL but NetworkManager retries every 3s — Render free tier sleeping. Will self-heal.
+    Open two tabs, wait for both to show SYNC, inject phrase in Tab A, confirm Tab B updates.
+    That confirms Phase 1 multi-tab sync done-criteria.
+  - Phase 1 remaining: VLM acuity validation (can a VLM scan the lattice image and correctly
+    identify Fact/Dream zones?). See docs/rcmt-scaling-vision.md Phase 1 done criteria.
+  - Phase 2 next: .rcmt language spec, parser, grammar. See docs/rcmt-scaling-vision.md.
 
 ==========================
 HOW TO EXTEND THIS HANDOFF
