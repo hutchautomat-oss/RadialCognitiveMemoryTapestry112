@@ -30,6 +30,8 @@ Things that are in the code today, with a pointer to verify.
 
 Things we have not built but intend to. Each has its own one-page spec in `docs/roadmap/`.
 
+- **[Sovereign Session Wrapper](./roadmap/sovereign-session-wrapper.md)** — a product layer that takes any AI instance and feeds it an RCMT sovereign context stack automatically, maintaining epistemic continuity across sessions. The first real-world RCMT product demo: RCMT managing its own development context is the pitch. Market: every enterprise team where AI decisions are re-litigated because no session knows what the last one decided.
+
 - **[Variable node radii](./roadmap/variable-node-radii.md)** — make a slot's visual radius scale with the length of the source phrase, so "long thought" occupies more visual real estate. Matches the optical-compression metaphor and gives a VLM a stronger foveal signal for high-content slots.
 - **[Epsilon Fibonacci packing correction](./roadmap/epsilon-fibonacci-packing.md)** — apply the well-known epsilon-offset variant of the spherical Fibonacci lattice for ~8% nearest-neighbor improvement near the poles, without changing the wire format.
 - **[`sovereign_save_key.bin` persistence](./roadmap/sovereign-save-key.md)** — write the 224 KB in-memory tapestry to disk on shutdown and re-load it on boot, so the lattice survives a refresh.

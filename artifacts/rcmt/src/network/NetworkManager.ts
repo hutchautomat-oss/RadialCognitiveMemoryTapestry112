@@ -44,8 +44,13 @@ class NetworkManagerClass {
   connect(): void {
     if (this.socket) return;
 
+    // VITE_WS_URL is the Render sync-server base (e.g. wss://….onrender.com).
+    // Falls back to same-host for local dev (Replit/Codespaces proxy).
+    const envBase = (import.meta.env.VITE_WS_URL as string | undefined)?.replace(/\/$/, "");
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${protocol}//${window.location.host}/socket`;
+    const url = envBase
+      ? `${envBase}/socket`
+      : `${protocol}//${window.location.host}/socket`;
 
     try {
       this.socket = new WebSocket(url);
