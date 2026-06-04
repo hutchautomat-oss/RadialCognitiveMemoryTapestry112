@@ -421,11 +421,6 @@ interface SaccadeStore {
   /**
    * Apply a remote LWW position update to the active frame. Position-only —
    * the server has already arbitrated by timestamp before fanning out, so
-   * the client doesn't re-check. Skips vacant slots so a peer broadcasting
-   * about a slot we don't have can't conjure a ghost dot at the origin.
-   */
-  applyRemoteUpdate: (slot: number, x: number, y: number, z: number) => void;
-
   /**
    * Inject a classified phrase into the appropriate tier's cache. If an
    * embedding is provided and cosine-similarity > REINFORCE_SIM_THRESHOLD
@@ -614,17 +609,6 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
     frame[off + 0] = x;
     frame[off + 1] = y;
     frame[off + 2] = z;
-    set({ bvhDirty: true });
-  },
-
-  applyRemoteUpdate: (slot, _x, _y, _z) => {
-    // DEPRECATED: The master buffer in NetworkManager is now the sole source
-    // of truth for spatial data. Remote updates are applied directly to the
-    // buffer and never converted to React state. This method is kept for
-    // backward compatibility but does nothing — spatial data flows directly
-    // from the master buffer to the renderer without touching React state.
-    // The "rcmt-buffer-dirty" event triggers React to signal the renderer.
-    if (slot < 0 || slot >= MAX_NODES) return;
     set({ bvhDirty: true });
   },
 
@@ -906,7 +890,12 @@ export const useSaccadeStore = create<SaccadeStore>((set, get) => ({
       for (let c = 0; c < budget; c++) {
         const sourceIdx = demoteCandidates[c].idx;
         const fromTier = slotTier[sourceIdx];
-        const plan = planDemoteSlot(sourceIdx, state, now);
+        // Use get() not the stale `state` snapshot: an earlier demotion may
+        // have already applied its plan via set(plan.update), and a new copy
+        // from the old snapshot would overwrite those changes (restoring freed
+        // mass to 1, etc.). get() sees the live post-set() state so the mid-
+        // flight guard (animStartTime !== 0) fires correctly.
+        const plan = planDemoteSlot(sourceIdx, get(), now);
         if (!plan) continue;
         set(plan.update);
         const dest = plan.destIdx;

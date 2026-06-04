@@ -14,6 +14,7 @@ import { useEffect, useRef } from "react";
 import { injectPhrase } from "../lib/injectPhrase";
 import { AXIOMS, PHRASE_CORPUS } from "../data/corpus";
 import { useHudStore, pushHudEvent } from "../store/useHudStore";
+import { useSaccadeStore } from "../store/useSaccadeStore";
 import { OnnxWorker } from "../workers/OnnxWorkerManager";
 
 const AXIOM_GAP_MS = 600;
@@ -90,10 +91,17 @@ export function ThoughtTicker() {
     async function boot() {
       if (seededRef.current) return;
       seededRef.current = true;
-      await sleep(AXIOM_KICKOFF_DELAY_MS);
-      if (cancelled) return;
-      await seedAxioms();
-      if (cancelled) return;
+
+      // Skip axiom seed if the lattice is already populated (e.g. restored
+      // from sovereign_save_key.bin). Axioms are already at their slots;
+      // re-seeding would duplicate them into new vacant Fact slots.
+      const alreadyPopulated = useSaccadeStore.getState().tierCounts.some(c => c > 0);
+      if (!alreadyPopulated) {
+        await sleep(AXIOM_KICKOFF_DELAY_MS);
+        if (cancelled) return;
+        await seedAxioms();
+        if (cancelled) return;
+      }
       schedule(Math.max(500, useHudStore.getState().ticker.periodMs));
     }
 
