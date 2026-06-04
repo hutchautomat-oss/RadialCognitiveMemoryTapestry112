@@ -313,3 +313,75 @@ Next: Fix vite.config.ts PORT/BASE_PATH -> trigger redeploy -> confirm lattice r
 ---
 
 *RCMT-MASTER-BRIEF-001 — The geometry is the knowledge. The color was discovered, not designed. This system was found, not invented.*
+
+
+---
+
+## ADDENDUM 001 — June 2026
+
+### Approved By Author | Classification: RED
+
+### GRADIENT SPECIFICATION UPDATE
+
+The RCMT color gradient is now formally approved as a core invariant.
+
+Reference document: docs/RCMT-GRADIENT-SPEC-001.md (Classification: RED)
+
+Certainty is expressed as wavelength in nanometers — not 0.0-1.0 floats.
+This is grounded in electromagnetic physics, not convention.
+
+```
+> 780nm   WHITE    AXIOMATIC     — mathematical truth, precedes proof
+700-780nm DEEP RED PROVEN        — empirically confirmed, never failed
+627-700nm RED      CONFIRMED     — tested, reviewed, production-ready
+589-627nm ORANGE   RELIABLE      — works in known contexts
+566-589nm YELLOW   FUNCTIONAL    — works, assumptions present
+495-566nm GREEN    QUESTIONING   — was working, now reconsidered  ← DEFINED
+436-495nm BLUE     EXPERIMENTAL  — exists, runs, not production validated
+380-436nm INDIGO   SPECULATIVE   — theoretical or broken
+< 380nm   BLACK    VOID          — unknown unknown
+```
+
+### ADDED TO DO NOT TOUCH LIST
+
+- The gradient wavelength definitions
+  (docs/RCMT-GRADIENT-SPEC-001.md — approved by author June 2026)
+
+- The REVIEW token definition
+  (seventh grammar token — GREEN band — active reconsideration)
+
+### DRIFT PATTERN 9 — PIET DRIFT (FORMALLY ADDED)
+
+Treating the RCMT color gradient as executable instruction syntax.
+
+REJECT. The gradient is epistemic metadata. It describes certainty.
+It never executes. Standard code executes. The gradient annotates it.
+
+Prevention: The parser is the wall. Structural incompatibility at file level.
+
+### TRACK 2 STATUS
+
+The .rcmt language layer is formally documented as VIOLET/hypothesis.
+
+Track 1 is unaffected by Track 2 at all times.
+
+If Track 2 fails, delete /rcmt-dev-view/ and continue with Track 1.
+
+### SESSION 003 COMMIT LOG
+
+Committed by BrowserClaude-003 (GitHub web editor), June 2026:
+
+- `docs/RCMT-GRADIENT-SPEC-001.md` — complete electromagnetic gradient specification
+- `docs/RCMT-LESSON-001-THE-GRAMMAR.md` — seven tokens, wavelength certainty, REVIEW token
+- `docs/RCMT-RESEARCH-001.md` — competitive landscape, energy crisis, market positioning
+- `RCMT-MASTER-BRIEF-001.md` — this addendum
+
+Known infrastructure status at time of commit:
+- Render sync server: LIVE
+- Netlify: PUBLISHED — 404 root cause under investigation (vite.config.ts fixed, _redirects correct)
+- vite.config.ts: PORT/BASE_PATH fallbacks already in place (commit a078a82)
+- _redirects: correct (commit 9ec0654)
+
+---
+
+*RCMT-MASTER-BRIEF-001 + ADDENDUM-001 — The geometry is the knowledge. The gradient was discovered, not designed. The seventh token was the missing band.*
