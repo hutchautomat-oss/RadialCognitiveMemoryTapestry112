@@ -161,10 +161,13 @@ Final commits this session:
   5728065 — fix(sync) + docs: wire VITE_WS_URL, wrapper product spec, docs index
   25eb4af — feat(persist): wire sovereign_save_key.bin boot-load and beforeunload flush
 Left off at:
-  - PRIORITY 1 verification: fix is on main and Netlify has deployed it. User was seeing
-    LOCAL but NetworkManager retries every 3s — Render free tier sleeping. Will self-heal.
-    Open two tabs, wait for both to show SYNC, inject phrase in Tab A, confirm Tab B updates.
-    That confirms Phase 1 multi-tab sync done-criteria.
+  - SYNC BLOCKER DIAGNOSED: WebSocket smoke test (scripts/smoke-test-ws.mjs) confirms
+    Render server returns non-101 on WebSocket upgrade — the ws library never sees the
+    request. Render service may be set to "Private" in dashboard, OR Render's CDN is
+    blocking WebSocket upgrades from non-browser clients. HTTP requests return 403 on all
+    paths. NEXT STEP: Check Render dashboard → service visibility → must be "Public".
+    If still failing, migrate sync server to Railway or Fly.io (both support WS free tier).
+    The application code is correct — all 52 vitest invariants pass. This is an ops issue.
   - Phase 1 remaining: VLM acuity validation (can a VLM scan the lattice image and correctly
     identify Fact/Dream zones?). See docs/rcmt-scaling-vision.md Phase 1 done criteria.
   - Phase 2 next: .rcmt language spec, parser, grammar. See docs/rcmt-scaling-vision.md.
