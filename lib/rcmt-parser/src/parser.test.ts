@@ -14,6 +14,8 @@ import {
   toTypeScript,
   toPython,
   toSummary,
+  toBinary,
+  toSVG,
   STRIDE_BYTES,
   MAX_NODES,
   TIER_STARTS,
@@ -21,6 +23,8 @@ import {
   TIER_LABELS,
   TIER_RGB,
   ANGULAR_RELATION_THRESHOLD,
+  NODE_DENSITY_BUBBLE,
+  MAX_RADIUS,
   type ParseResult,
   type CRVMRecord,
 } from "./index";
@@ -333,6 +337,92 @@ describe("toSummary", () => {
     expect(s).toContain("occupied slots : 1");
     expect(s).toContain("vacant slots   : 1");
     expect(s).toContain("Fact");
+  });
+});
+
+describe("toBinary", () => {
+  it("re-encodes occupied records back to STRIDE_BYTES-aligned output", () => {
+    const r = parse(concat(
+      makeRecord({ nodeIndex: 0, intentId: 1, x: 1, y: 2, z: 3, scale: 1.25, lwwStamp: 12345 }),
+      makeRecord({ nodeIndex: 1, scale: 0 }), // vacant — dropped
+    )) as ParseResult;
+
+    const bin = toBinary(r);
+    expect(bin.byteLength).toBe(STRIDE_BYTES); // only the occupied record
+
+    const reparsed = parse(bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength)) as ParseResult;
+    expect(reparsed.recordCount).toBe(1);
+    const rec = reparsed.records[0];
+    expect(rec.nodeIndex).toBe(0);
+    expect(rec.intentId).toBe(1);
+    expect(rec.x).toBeCloseTo(1, 5);
+    expect(rec.y).toBeCloseTo(2, 5);
+    expect(rec.z).toBeCloseTo(3, 5);
+    expect(rec.scale).toBeCloseTo(1.25, 5);
+    expect(rec.lwwStamp).toBeCloseTo(12345, 3);
+  });
+
+  it("round-trips parse -> toBinary -> parse as a fixed point", () => {
+    const original = parse(concat(
+      makeRecord({ nodeIndex: 0,    x: 0.1, y: 0.2, z: 0.3, scale: 0.8, lwwStamp: 111 }),
+      makeRecord({ nodeIndex: 2000, x: -1,  y: 0.5, z: 2.5, scale: 1.5, lwwStamp: 222 }),
+    )) as ParseResult;
+
+    const bin1 = toBinary(original);
+    const reparsed1 = parse(bin1.buffer.slice(bin1.byteOffset, bin1.byteOffset + bin1.byteLength)) as ParseResult;
+    const bin2 = toBinary(reparsed1);
+
+    expect(new Uint8Array(bin2)).toEqual(new Uint8Array(bin1));
+  });
+});
+
+describe("toSVG", () => {
+  it("emits a well-formed SVG document with one circle per occupied slot", () => {
+    const r = parse(concat(
+      makeRecord({ nodeIndex: 0, x: 0, y: 0, z: 0, scale: 1 }),
+      makeRecord({ nodeIndex: 7999, scale: 0 }), // vacant — no circle
+    )) as ParseResult;
+
+    const svg = toSVG(r);
+    expect(svg).toContain("<svg xmlns=\"http://www.w3.org/2000/svg\"");
+    expect(svg).toContain("</svg>");
+    expect((svg.match(/<circle/g) ?? []).length).toBe(1);
+    expect(svg).toContain("#0 Fact");
+  });
+
+  it("colors each circle with the slot's TIER_RGB", () => {
+    const r = parse(makeRecord({ nodeIndex: 0, x: 0, y: 0, z: 0, scale: 1 })) as ParseResult;
+    const [cr, cg, cb] = TIER_RGB[0];
+    const expectedFill = `rgb(${Math.round(cr * 255)},${Math.round(cg * 255)},${Math.round(cb * 255)})`;
+    expect(toSVG(r)).toContain(`fill="${expectedFill}"`);
+  });
+
+  it("the viewBox is large enough to contain the outermost slot plus its visual radius", () => {
+    const r = parse(makeRecord({ nodeIndex: 0, x: MAX_RADIUS, y: 0, z: 0, scale: 1.5 })) as ParseResult;
+    const svg = toSVG(r);
+    const viewBoxMatch = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+    expect(viewBoxMatch).not.toBeNull();
+    const [, w, h] = viewBoxMatch as RegExpMatchArray;
+    const size = Number(w);
+    expect(size).toBe(Number(h));
+    // The rim node's circle (center + radius) must not exceed the canvas.
+    const cxMatch = svg.match(/cx="([\d.]+)"/);
+    const rMatch = svg.match(/r="([\d.]+)"/);
+    const cx = Number((cxMatch as RegExpMatchArray)[1]);
+    const radius = Number((rMatch as RegExpMatchArray)[1]);
+    expect(cx + radius).toBeLessThanOrEqual(size);
+  });
+
+  it("MAX_RADIUS reflects the lattice foveation formula", () => {
+    expect(MAX_RADIUS).toBeCloseTo(Math.sqrt(MAX_NODES - 1) * NODE_DENSITY_BUBBLE, 6);
+  });
+
+  it("an empty result still produces a valid (empty) SVG", () => {
+    const r = parse(makeRecord({ nodeIndex: 0, scale: 0 })) as ParseResult;
+    const svg = toSVG(r);
+    expect(svg).toContain("<svg");
+    expect(svg).toContain("</svg>");
+    expect(svg).not.toContain("<circle");
   });
 });
 

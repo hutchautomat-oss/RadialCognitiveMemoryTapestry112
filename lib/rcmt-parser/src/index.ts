@@ -49,6 +49,10 @@ export const TIER_RGB: [number, number, number][] = [
 
 export const ANGULAR_RELATION_THRESHOLD = 0.25; // radians — within ~14°
 
+// Radial foveation factor — radius = sqrt(nodeIndex) * NODE_DENSITY_BUBBLE.
+// Must match useSaccadeStore.ts / calibration.ts NODE_DENSITY_BUBBLE.
+export const NODE_DENSITY_BUBBLE = 0.6;
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type TierIndex = 0 | 1 | 2 | 3 | 4;
@@ -93,11 +97,13 @@ function tierFromIndex(nodeIndex: number): TierIndex {
   return 4; // fallback to Dream (outermost)
 }
 
+/** Outermost radial distance reachable by any slot in the lattice. */
+export const MAX_RADIUS = Math.sqrt(MAX_NODES - 1) * NODE_DENSITY_BUBBLE;
+
 function certaintyFromIndex(nodeIndex: number): number {
   // certainty = 1 - (radius / max_radius)
-  // radius = sqrt(nodeIndex) * 0.6  (the lattice formula)
-  const MAX_RADIUS = Math.sqrt(MAX_NODES - 1) * 0.6;
-  const radius = Math.sqrt(nodeIndex) * 0.6;
+  // radius = sqrt(nodeIndex) * NODE_DENSITY_BUBBLE  (the lattice formula)
+  const radius = Math.sqrt(nodeIndex) * NODE_DENSITY_BUBBLE;
   return Math.max(0, Math.min(1, 1 - radius / MAX_RADIUS));
 }
 
@@ -138,7 +144,7 @@ export function parse(buf: ArrayBuffer): ParseResult | ParseError {
     if (scale <= 0) { vacantCount++; continue; }
 
     const tierIdx   = tierFromIndex(nodeIndex);
-    const radius    = Math.sqrt(nodeIndex) * 0.6;
+    const radius    = Math.sqrt(nodeIndex) * NODE_DENSITY_BUBBLE;
     const certainty = certaintyFromIndex(nodeIndex);
 
     records.push({
@@ -251,4 +257,70 @@ export function toSummary(result: ParseResult): string {
     ),
   ];
   return lines.join("\n");
+}
+
+/**
+ * Re-encode occupied records back into a raw 28-byte-per-record CRVM stream
+ * (the same byte layout `parse()` reads). Vacant slots are not re-emitted —
+ * round-tripping `parse()` -> `toBinary()` drops them, matching the
+ * "nothing else" rule for `.rcmt` files (a sequence of CRVM records, only
+ * occupied ones carry information).
+ */
+export function toBinary(result: ParseResult): Uint8Array {
+  const out = new Uint8Array(result.records.length * STRIDE_BYTES);
+  const view = new DataView(out.buffer);
+  result.records.forEach((r, i) => {
+    const off = i * STRIDE_BYTES;
+    view.setUint16(off,      r.nodeIndex, true);
+    view.setUint16(off + 2,  r.intentId,  true);
+    view.setFloat32(off + 4, r.x,         true);
+    view.setFloat32(off + 8, r.y,         true);
+    view.setFloat32(off + 12, r.z,        true);
+    view.setFloat32(off + 16, r.scale,    true);
+    view.setFloat64(off + 20, r.lwwStamp, true);
+  });
+  return out;
+}
+
+// ── Visual output (SVG) ─────────────────────────────────────────────────────
+
+// Visual radius (SVG units) per unit of `scale`. Purely a presentation
+// choice for this 2D projection — does not need to match the 3D renderer's
+// VISUAL_RADIUS_MULT, which scales a sphere mesh, not an SVG circle.
+const SVG_RADIUS_PER_SCALE = 0.5;
+// Largest possible node circle radius (MAX_SCALE=1.5 * SVG_RADIUS_PER_SCALE),
+// used as canvas margin so rim nodes are never clipped.
+const MAX_SCALE_RADIUS = 1.5 * SVG_RADIUS_PER_SCALE;
+
+/**
+ * Render a top-down (XY) orthographic projection of the lattice as an SVG
+ * document — one circle per occupied slot, positioned at (x, y), sized by
+ * `scale`, and colored by the slot's TIER_RGB. Fact slots cluster near the
+ * center (high certainty); Dream slots disperse toward the rim (low
+ * certainty), reproducing the foveal gradient for VLM visual ingestion.
+ *
+ * This is a vector (SVG) output by design — no raster/canvas dependency is
+ * introduced. Rasterizing to PNG, if needed, is a downstream step using
+ * standard external tooling.
+ */
+export function toSVG(result: ParseResult): string {
+  const margin = MAX_SCALE_RADIUS;
+  const size = 2 * (MAX_RADIUS + margin);
+  const center = MAX_RADIUS + margin;
+
+  const circles = result.records.map((r) => {
+    const cx = (r.x + center).toFixed(3);
+    const cy = (r.y + center).toFixed(3);
+    const radius = Math.max(0.05, r.scale * SVG_RADIUS_PER_SCALE).toFixed(3);
+    const [cr, cg, cb] = r.color;
+    const fill = `rgb(${Math.round(cr * 255)},${Math.round(cg * 255)},${Math.round(cb * 255)})`;
+    return `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${fill}"><title>#${r.nodeIndex} ${r.tierLabel}</title></circle>`;
+  });
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size.toFixed(3)} ${size.toFixed(3)}">`,
+    `<rect width="100%" height="100%" fill="#0a0a12"/>`,
+    ...circles,
+    `</svg>`,
+  ].join("\n");
 }

@@ -105,7 +105,7 @@ OUTPUT: Any of —
   - TypeScript module (for web/Node.js consumption)
   - Python dict (for ML pipeline consumption)
   - JSON (for REST API consumption)
-  - SVG/PNG render (for VLM visual ingestion)
+  - SVG render (for VLM visual ingestion; PNG rasterization is an external step)
   - Raw binary CRVM stream (for WebSocket sync)
 
 The parser NEVER executes color as instruction. Color is metadata computed
@@ -158,11 +158,16 @@ The Phase 2 Language layer is built and working:
 - .rcmt authoring tooling — `@workspace/rcmt-parser/author`
   (`latticePosition()`, `encodeRecord()`, `encodeRcmtFile()`),
   `rcmt-author` CLI: IMPLEMENTED
+- SVG render output (for VLM visual ingestion) — `toSVG()`, `rcmt-parse --svg`:
+  IMPLEMENTED. Top-down (XY) projection, one circle per occupied slot, sized
+  by `scale` and colored by TIER_RGB. PNG rasterization, if needed, is a
+  downstream step using standard external tooling — not part of this library.
+- Raw binary CRVM stream output (for WebSocket sync) — `toBinary()`,
+  `rcmt-parse --bin`: IMPLEMENTED. Re-encodes occupied records back to the
+  28-byte wire layout; `parse() -> toBinary() -> parse()` is a fixed point.
 
 Not yet built:
 - RCMT grammar definition (formal EBNF for the .rcmt language)
-- SVG/PNG render output (for VLM visual ingestion)
-- Raw binary CRVM stream output (for WebSocket sync)
 
 ---
 

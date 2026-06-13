@@ -3,13 +3,15 @@
  * rcmt-parse — standalone CLI for decoding .rcmt binary files.
  *
  * Usage:
- *   rcmt-parse [--json | --ts | --py | --summary] [--relations] <file.rcmt | ->
+ *   rcmt-parse [--json | --ts | --py | --summary | --svg | --bin] [--relations] <file.rcmt | ->
  *
  * Format flags (mutually exclusive, default: --summary):
  *   --json      Emit structured JSON
  *   --ts        Emit TypeScript export block
  *   --py        Emit Python assignment block
  *   --summary   Emit human-readable summary (default)
+ *   --svg       Emit an SVG render of the lattice (top-down projection)
+ *   --bin       Re-emit a raw CRVM binary stream (occupied slots only)
  *
  * Modifier flags:
  *   --relations  Include angular-relation graph (only meaningful with --json)
@@ -26,16 +28,17 @@
  *   rcmt-parse corpus.rcmt
  *   rcmt-parse --json --relations corpus.rcmt
  *   cat corpus.rcmt | rcmt-parse --ts -
+ *   rcmt-parse --svg corpus.rcmt > corpus.svg
  */
 
 import { readFileSync } from "node:fs";
-import { parse, toJSON, toTypeScript, toPython, toSummary } from "../src/index.js";
+import { parse, toJSON, toTypeScript, toPython, toSummary, toSVG, toBinary } from "../src/index.js";
 
 // ── Argument parsing ───────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 
-type Format = "json" | "ts" | "py" | "summary";
+type Format = "json" | "ts" | "py" | "summary" | "svg" | "bin";
 
 let format: Format = "summary";
 let includeRelations = false;
@@ -47,6 +50,8 @@ for (const arg of args) {
     case "--ts":      format = "ts";      break;
     case "--py":      format = "py";      break;
     case "--summary": format = "summary"; break;
+    case "--svg":     format = "svg";     break;
+    case "--bin":     format = "bin";     break;
     case "--relations": includeRelations = true; break;
     case "--help": case "-h":
       printUsage();
@@ -109,6 +114,12 @@ switch (format) {
   case "summary":
     process.stdout.write(toSummary(result) + "\n");
     break;
+  case "svg":
+    process.stdout.write(toSVG(result) + "\n");
+    break;
+  case "bin":
+    process.stdout.write(toBinary(result));
+    break;
 }
 
 process.exit(0);
@@ -125,13 +136,15 @@ function printUsage(): void {
 rcmt-parse — decode a .rcmt binary file
 
 Usage:
-  rcmt-parse [--json | --ts | --py | --summary] [--relations] <file.rcmt | ->
+  rcmt-parse [--json | --ts | --py | --summary | --svg | --bin] [--relations] <file.rcmt | ->
 
 Format flags (default: --summary):
   --json      Structured JSON
   --ts        TypeScript export block
   --py        Python assignment block
   --summary   Human-readable summary
+  --svg       SVG render of the lattice (top-down projection)
+  --bin       Raw CRVM binary stream (occupied slots only)
 
 Modifier flags:
   --relations  Include angular-relation graph (meaningful with --json)

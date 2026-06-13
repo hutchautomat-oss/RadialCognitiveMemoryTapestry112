@@ -205,16 +205,37 @@ Key work:
     wrong 0-799/800-2399/... values the parser bug had) and updated its "Not yet built"
     list — .rcmt parser, translation engine, and authoring tooling are now IMPLEMENTED.
     Updated docs/roadmap.md Built table with the four new parser/author/CLI rows.
+  - PHASE 2 NEXT-NEXT DELIVERABLE BUILT: closed out two more "Not yet built" parser
+    outputs from docs/rcmt-language-spec-001.md.
+    - toSVG() in index.ts: top-down (XY) orthographic projection of the lattice as
+      an SVG document — one <circle> per occupied slot, positioned at (x,y), radius
+      from `scale`, fill from TIER_RGB, <title> with nodeIndex+tierLabel. Canvas
+      sized from new exported MAX_RADIUS = sqrt(MAX_NODES-1)*NODE_DENSITY_BUBBLE so
+      rim nodes are never clipped. PNG rasterization deliberately left to external
+      tooling (no canvas/raster dependency added). `rcmt-parse --svg`.
+    - toBinary(): re-encodes ParseResult.records back to raw 28-byte CRVM records
+      (occupied slots only); parse() -> toBinary() -> parse() is a fixed point.
+      `rcmt-parse --bin`.
+    - Exported NODE_DENSITY_BUBBLE from index.ts (was hardcoded 0.6 in two places);
+      author.ts now imports it instead of duplicating.
+    - 7 new vitest invariants (121/121 total pass). Smoke-tested both new CLI flags;
+      generated a 300-node sample .rcmt (60 per tier) and rendered it to SVG —
+      confirmed Fact slots cluster at center (cyan-green) and Dream slots disperse
+      to the rim (violet), matching the foveal gradient.
+    - Updated docs/rcmt-language-spec-001.md "Not yet built" (only RCMT grammar EBNF
+      remains) and docs/roadmap.md Built table.
 Final commits this session:
   (see git log) — fix(parser): correct TIER_CAPS/TIER_STARTS/TIER_RGB; add rcmt-parse CLI
   (see git log) — feat(parser): add .rcmt authoring tooling (author.ts + rcmt-author CLI)
+  (see git log) — feat(parser): add toSVG/toBinary outputs + rcmt-parse --svg/--bin
 Left off at:
   - SYNC BLOCKER still unresolved (see session 003 note above) — Render dashboard
     service-visibility check still needed; this is an ops task, not a code task.
-  - Phase 2 remaining: RCMT grammar definition (formal EBNF), SVG/PNG render output for
-    VLM ingestion, raw binary CRVM stream output. See docs/rcmt-language-spec-001.md
-    "Not yet built".
-  - Phase 1 remaining: VLM acuity validation (unchanged from session 003).
+  - Phase 2 remaining: RCMT grammar definition (formal EBNF) is the last item in
+    docs/rcmt-language-spec-001.md "Not yet built".
+  - Phase 1 remaining: VLM acuity validation (unchanged from session 003) — the new
+    toSVG() output is the natural input for this: render a .rcmt corpus to SVG and
+    have a VLM identify Fact/Dream zones from it.
 
 ==========================
 HOW TO EXTEND THIS HANDOFF

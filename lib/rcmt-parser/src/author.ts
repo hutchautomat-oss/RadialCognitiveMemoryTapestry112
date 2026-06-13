@@ -23,12 +23,14 @@ import {
   STRIDE_BYTES,
   TIER_STARTS,
   TIER_CAPS,
+  NODE_DENSITY_BUBBLE,
   type TierIndex,
 } from "./index.js";
 
+export { NODE_DENSITY_BUBBLE };
+
 // ── Geometry constants (must match useSaccadeStore.ts) ──────────────────────
 export const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
-export const NODE_DENSITY_BUBBLE = 0.6;
 
 // ── Scale constants (must match useSaccadeStore.ts) ─────────────────────────
 export const MIN_SCALE = 0.15;
