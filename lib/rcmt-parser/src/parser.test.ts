@@ -133,14 +133,14 @@ describe("wire-format", () => {
 describe("tier geometry", () => {
   const cases: [number, string][] = [
     [0,    "Fact"],
-    [799,  "Fact"],
-    [800,  "Scenario"],
-    [2399, "Scenario"],
-    [2400, "Metric"],
-    [4799, "Metric"],
-    [4800, "Theory"],
-    [6799, "Theory"],
-    [6800, "Dream"],
+    [1999, "Fact"],
+    [2000, "Scenario"],
+    [3999, "Scenario"],
+    [4000, "Metric"],
+    [5499, "Metric"],
+    [5500, "Theory"],
+    [6999, "Theory"],
+    [7000, "Dream"],
     [7999, "Dream"],
   ];
 
@@ -208,7 +208,7 @@ describe("tier histogram", () => {
 
   it("histogram correctly tallies mixed tier records", () => {
     const factSlot     = makeRecord({ nodeIndex: 0,    scale: 1 }); // Fact
-    const scenarioSlot = makeRecord({ nodeIndex: 800,  scale: 1 }); // Scenario
+    const scenarioSlot = makeRecord({ nodeIndex: 2000, scale: 1 }); // Scenario
     const factSlot2    = makeRecord({ nodeIndex: 1,    scale: 1 }); // Fact
     const r = parse(concat(factSlot, scenarioSlot, factSlot2)) as ParseResult;
     expect(r.tierHistogram["Fact"]).toBe(2);

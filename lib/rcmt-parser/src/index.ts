@@ -19,7 +19,7 @@
  *   tier        — 1..5 (Fact/Scenario/Metric/Theory/Dream) from slot index
  *   tierLabel   — human name
  *   certainty   — 0.0..1.0 (1 = absolute fact, 0 = speculative dream)
- *   color       — [r, g, b] 0..1, epistemic gradient (physics-based)
+ *   color       — [r, g, b] 0..1, render-side tier palette (TIER_RGB)
  *   radius      — sqrt(nodeIndex) * 0.6 (lattice radial distance)
  *
  * See: docs/rcmt-language-spec-001.md
@@ -30,18 +30,21 @@ export const STRIDE_BYTES = 28;
 export const MAX_NODES = 8000;
 
 // ── Tier geometry (must match useSaccadeStore.ts TIER_CAPS / TIER_STARTS) ──
-export const TIER_CAPS   = [800, 1600, 2400, 2000, 1200] as const;
-export const TIER_STARTS = [0, 800, 2400, 4800, 6800]    as const;
+export const TIER_CAPS   = [2000, 2000, 1500, 1500, 1000] as const;
+export const TIER_STARTS = [0, 2000, 4000, 5500, 7000]    as const;
 export const TIER_LABELS = ["Fact", "Scenario", "Metric", "Theory", "Dream"] as const;
 
-// Epistemic color gradient — physics-based wavelength mapping, never modified.
-// Red (Fact/certain) → terra/amber → cool blue → violet (Dream/speculative)
+// Render-side tier palette — single source of truth for node color, mirrored
+// from useSaccadeStore.ts TIER_RGB. Color opponency + certainty-by-saturation:
+// hues spread across opponent channels for pre-attentive separation; saturation
+// ramps down Fact -> Dream (sharp cyan-green at max certainty, faded violet at
+// the speculative rim).
 export const TIER_RGB: [number, number, number][] = [
-  [0.95, 0.15, 0.10], // Fact    — red   (650 nm)
-  [0.87, 0.80, 0.29], // Scenario— amber (580 nm)
-  [0.15, 0.95, 0.89], // Metric  — cyan  (490 nm)
-  [0.37, 0.90, 0.20], // Theory  — green (530 nm)
-  [0.50, 0.00, 1.00], // Dream   — violet(400 nm)
+  [0.15, 0.95, 0.89], // Fact     — sharp cyan-green, max saturation
+  [0.37, 0.90, 0.20], // Scenario — vivid green
+  [0.87, 0.80, 0.29], // Metric   — yellow
+  [0.83, 0.53, 0.31], // Theory   — orange
+  [0.73, 0.46, 0.78], // Dream    — faded violet, low saturation
 ];
 
 export const ANGULAR_RELATION_THRESHOLD = 0.25; // radians — within ~14°

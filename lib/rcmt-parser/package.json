@@ -5,5 +5,15 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "bin": {
+    "rcmt-parse": "./bin/rcmt-parse.ts"
+  },
+  "scripts": {
+    "rcmt-parse": "tsx ./bin/rcmt-parse.ts"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "catalog:"
   }
 }
