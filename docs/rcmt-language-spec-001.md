@@ -46,13 +46,14 @@ No certainty declaration needed. The slot index is the certainty declaration.
 
 ### Tier — Derived from Fibonacci Band
 
-The 8,000 slots are divided into five contiguous tier bands:
+The 8,000 slots are divided into five contiguous tier bands (TIER_CAPS /
+TIER_STARTS in useSaccadeStore.ts):
 
-  Tier 0 — FACT      slots 0–799      (innermost, densest)
-  Tier 1 — SCENARIO  slots 800–2399
-  Tier 2 — METRIC    slots 2400–4799
-  Tier 3 — THEORY    slots 4800–6799
-  Tier 4 — DREAM     slots 6800–7999  (outermost, sparsest)
+  Tier 1 — FACT      slots 0–1999     (innermost, densest)
+  Tier 2 — SCENARIO  slots 2000–3999
+  Tier 3 — METRIC    slots 4000–5499
+  Tier 4 — THEORY    slots 5500–6999
+  Tier 5 — DREAM     slots 7000–7999  (outermost, sparsest)
 
 The tier is computed from the slot index. It is never declared.
 
@@ -87,7 +88,9 @@ Each CRVM record is exactly 28 bytes:
   [64-bit LWW stamp  ]  — last-write-wins timestamp
 
 A human authoring RCMT provides: slot index + intent ID + content phrase.
-The parser computes: X, Y, Z, certainty, tier, relationships, color.
+The authoring tool computes: X, Y, Z via the same latticePosition() math the
+live store uses, plus a scale derived from phrase length. The parser then
+re-derives certainty, tier, relationships, and color from the encoded record.
 
 The author places. The geometry reads.
 
@@ -146,13 +149,20 @@ The RCMT runtime is built and working:
 - Five-tier slot system: IMPLEMENTED
 - Invariant checking: IMPLEMENTED
 
-Not yet built:
-- .rcmt file format parser
-- RCMT grammar definition
-- Translation engine (rcmt → TypeScript/Python/JSON)
-- .rcmt authoring tooling
+The Phase 2 Language layer is built and working:
+- .rcmt file format parser — `@workspace/rcmt-parser` (`parse()`,
+  `findRelations()`): IMPLEMENTED
+- Translation engine (rcmt → TypeScript/Python/JSON/summary) —
+  `toTypeScript()`/`toPython()`/`toJSON()`/`toSummary()`: IMPLEMENTED
+- `rcmt-parse` CLI: IMPLEMENTED
+- .rcmt authoring tooling — `@workspace/rcmt-parser/author`
+  (`latticePosition()`, `encodeRecord()`, `encodeRcmtFile()`),
+  `rcmt-author` CLI: IMPLEMENTED
 
-Phase 1 (grounding proof) must be complete before parser work begins.
+Not yet built:
+- RCMT grammar definition (formal EBNF for the .rcmt language)
+- SVG/PNG render output (for VLM visual ingestion)
+- Raw binary CRVM stream output (for WebSocket sync)
 
 ---
 

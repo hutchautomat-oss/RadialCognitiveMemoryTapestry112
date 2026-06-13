@@ -172,6 +172,50 @@ Left off at:
     identify Fact/Dream zones?). See docs/rcmt-scaling-vision.md Phase 1 done criteria.
   - Phase 2 next: .rcmt language spec, parser, grammar. See docs/rcmt-scaling-vision.md.
 
+--- SESSION 004 (2026-06-13, Claude Code via web — claude/rcmt112-easter-eggs-ZeIPy) ---
+Status:    COMPLETED
+Key work:
+  - Did a full, non-skimming read of RCMT-MASTER-BRIEF-001.md, RCMT-GAP-DOCUMENT-001.md,
+    docs/rcmt-language-spec-001.md, docs/roadmap.md, useSaccadeStore.ts, SynapseRenderer.tsx,
+    Scene.tsx to verify the Phase 2 parser work from the prior session against the actual
+    source of truth.
+  - FOUND AND FIXED A REAL BUG: the @workspace/rcmt-parser library (added uncommitted in
+    the prior session) had TIER_CAPS/TIER_STARTS/TIER_RGB values that did NOT match
+    useSaccadeStore.ts. Corrected TIER_CAPS=[2000,2000,1500,1500,1000],
+    TIER_STARTS=[0,2000,4000,5500,7000], and TIER_RGB to the real cyan-green/green/yellow/
+    orange/violet opponent palette. Fixed parser.test.ts tier-boundary + histogram cases.
+    41/41 tests pass.
+  - Added bin/rcmt-parse.ts CLI (decode .rcmt -> json/ts/py/summary, --relations, stdin).
+  - This branch was 7 commits behind / 3 ahead of origin/main (prior squash-merges).
+    Rebased onto origin/main — this pulled in the decaySweep state->get() fix that
+    saccade.test.ts needed. Resolved conflicts in RCMT-HANDOFF-002.md and docs/roadmap.md
+    (kept the more complete session-003 record; merged both sides' Built-table additions).
+    Force-pushed the rebased branch. Full suite: 98/98 pass after rebase.
+  - PHASE 2 NEXT DELIVERABLE BUILT: .rcmt authoring tooling — the reverse direction
+    listed as "Not yet built" in docs/rcmt-language-spec-001.md. New module
+    lib/rcmt-parser/src/author.ts exports latticePosition()/sphericalFibonacci()
+    (mirrored from useSaccadeStore.ts, including GOLDEN_ANGLE=137.508deg and
+    NODE_DENSITY_BUBBLE=0.6), scaleFromPhrase() (mirrors MIN_SCALE/SCALE_PER_CHAR/
+    MAX_SCALE), encodeRecord()/encodeRcmtFile() (28-byte little-endian CRVM records,
+    default intentId derived from the slot's tier, default lwwStamp=Date.now()).
+    New rcmt-author CLI (bin/rcmt-author.ts): JSON array -> .rcmt binary, --out/stdin.
+    16 new vitest invariants in author.test.ts (114/114 total pass). Smoke-tested the
+    full author -> parse round trip on nodeIndex 0/2000/7999 (Fact/Scenario/Dream).
+  - Fixed a stale tier-boundary table in docs/rcmt-language-spec-001.md (was the same
+    wrong 0-799/800-2399/... values the parser bug had) and updated its "Not yet built"
+    list — .rcmt parser, translation engine, and authoring tooling are now IMPLEMENTED.
+    Updated docs/roadmap.md Built table with the four new parser/author/CLI rows.
+Final commits this session:
+  (see git log) — fix(parser): correct TIER_CAPS/TIER_STARTS/TIER_RGB; add rcmt-parse CLI
+  (see git log) — feat(parser): add .rcmt authoring tooling (author.ts + rcmt-author CLI)
+Left off at:
+  - SYNC BLOCKER still unresolved (see session 003 note above) — Render dashboard
+    service-visibility check still needed; this is an ops task, not a code task.
+  - Phase 2 remaining: RCMT grammar definition (formal EBNF), SVG/PNG render output for
+    VLM ingestion, raw binary CRVM stream output. See docs/rcmt-language-spec-001.md
+    "Not yet built".
+  - Phase 1 remaining: VLM acuity validation (unchanged from session 003).
+
 ==========================
 HOW TO EXTEND THIS HANDOFF
 ==========================

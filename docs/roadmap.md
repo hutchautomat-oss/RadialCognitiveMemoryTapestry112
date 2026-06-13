@@ -29,6 +29,8 @@ Things that are in the code today, with a pointer to verify.
 | Visible synapse edges — k-nearest spatial connections, single draw call | `SynapseRenderer.tsx` (BVH box-query per occupied node, k=3 neighbors, vertex-colored `LineSegments`); mounted unconditionally in `Scene.tsx` |
 | `.rcmt` binary parser — `@workspace/rcmt-parser`                     | `lib/rcmt-parser/src/index.ts`; `parse()`, `findRelations()`, `toJSON/toTypeScript/toPython/toSummary()`; 41 vitest invariants in `lib/rcmt-parser/src/parser.test.ts` |
 | `rcmt-parse` CLI — decode any `.rcmt` file to JSON/TS/Python/summary | `lib/rcmt-parser/bin/rcmt-parse.ts`; all four format flags + `--relations`; stdin (`-`) and file path; exit-code contract |
+| `.rcmt` authoring tooling — `@workspace/rcmt-parser/author`          | `lib/rcmt-parser/src/author.ts`; `latticePosition()`/`sphericalFibonacci()` mirrored from `useSaccadeStore.ts`, `scaleFromPhrase()`, `encodeRecord()`/`encodeRcmtFile()`; 16 vitest invariants in `lib/rcmt-parser/src/author.test.ts` |
+| `rcmt-author` CLI — encode a `.rcmt` file from JSON `{nodeIndex, intentId?, phrase?, scale?, lwwStamp?}` | `lib/rcmt-parser/bin/rcmt-author.ts`; `--out <file>`, stdin (`-`) and file path; exit-code contract |
 
 ## Planned
 

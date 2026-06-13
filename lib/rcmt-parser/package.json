@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./author": "./src/author.ts"
   },
   "bin": {
-    "rcmt-parse": "./bin/rcmt-parse.ts"
+    "rcmt-parse": "./bin/rcmt-parse.ts",
+    "rcmt-author": "./bin/rcmt-author.ts"
   },
   "scripts": {
-    "rcmt-parse": "tsx ./bin/rcmt-parse.ts"
+    "rcmt-parse": "tsx ./bin/rcmt-parse.ts",
+    "rcmt-author": "tsx ./bin/rcmt-author.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",
